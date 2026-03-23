@@ -1116,8 +1116,13 @@ function startHookServer() {
 }
 // Start server
 async function main() {
-    // Start HTTP hook server
-    startHookServer();
+    // Start HTTP hook server (but don't let it fail MCP startup)
+    try {
+        startHookServer();
+    }
+    catch (err) {
+        logger.error("Hook server failed to start (non-fatal):", err);
+    }
     // Start MCP server
     const transport = new StdioServerTransport();
     await server.connect(transport);
