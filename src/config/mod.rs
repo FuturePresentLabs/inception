@@ -14,7 +14,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             host: "0.0.0.0".to_string(),
-            port: 8080,
+            port: 18080,
             tls: TlsConfig::default(),
         }
     }
@@ -83,7 +83,7 @@ impl Default for MetricsConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            port: 9090,
+            port: 19090,
         }
     }
 }

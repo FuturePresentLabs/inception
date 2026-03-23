@@ -99,7 +99,7 @@ async function handleAttach(args: { session_id?: string }) {
           "Authorization": `Bearer ${TOKEN}`,
         },
         body: JSON.stringify({
-          agent_type: "claude-code",
+          agent_type: "claude_code",
           capabilities: ["rust", "python", "typescript"],
         }),
       });
