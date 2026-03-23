@@ -96,19 +96,19 @@ const CONFIGURE_TOOL = {
         },
     },
 };
-const SEND_RESPONSE_TOOL = {
-    name: "inception_send_response",
-    description: "Send a response message back to the registry (for replies to incoming messages)",
+const REPLY_TOOL = {
+    name: "reply",
+    description: "Send a reply message back to the Inception registry",
     inputSchema: {
         type: "object",
         properties: {
             content: {
                 type: "string",
-                description: "Response content to send",
+                description: "Message content to send",
             },
-            in_reply_to: {
+            reply_to: {
                 type: "string",
-                description: "ID of the message being replied to (optional)",
+                description: "ID of the message being replied to (from inbound meta)",
             },
         },
         required: ["content"],
@@ -162,7 +162,7 @@ const server = new Server({
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
-        tools: [ATTACH_TOOL, DETACH_TOOL, STATUS_TOOL, CONFIGURE_TOOL, UPDATE_STATUS_TOOL, METRICS_TOOL, SEND_RESPONSE_TOOL],
+        tools: [ATTACH_TOOL, DETACH_TOOL, STATUS_TOOL, CONFIGURE_TOOL, UPDATE_STATUS_TOOL, METRICS_TOOL, REPLY_TOOL],
     };
 });
 // Handle tool calls
@@ -181,8 +181,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             return handleUpdateStatus(args);
         case "inception_metrics":
             return handleMetrics(args);
-        case "inception_send_response":
-            return handleSendResponse(args);
+        case "reply":
+            return handleReply(args);
         default:
             throw new Error(`Unknown tool: ${name}`);
     }
@@ -580,7 +580,7 @@ function formatDuration(seconds) {
         return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
     return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
-async function handleSendResponse(args) {
+async function handleReply(args) {
     try {
         if (!currentSessionId) {
             return {
@@ -596,7 +596,7 @@ async function handleSendResponse(args) {
         const response = {
             id: `resp-${Date.now()}`,
             content: args.content,
-            in_reply_to: args.in_reply_to,
+            in_reply_to: args.reply_to,
             timestamp: new Date().toISOString(),
             source: "claude_code",
         };
@@ -606,7 +606,7 @@ async function handleSendResponse(args) {
                 content: [
                     {
                         type: "text",
-                        text: `Response sent via WebSocket`,
+                        text: `Reply sent via WebSocket`,
                     },
                 ],
             };
@@ -621,13 +621,13 @@ async function handleSendResponse(args) {
             body: JSON.stringify(response),
         });
         if (!httpResponse.ok) {
-            throw new Error(`Failed to send response: ${httpResponse.statusText}`);
+            throw new Error(`Failed to send reply: ${httpResponse.statusText}`);
         }
         return {
             content: [
                 {
                     type: "text",
-                    text: `Response sent via HTTP API`,
+                    text: `Reply sent via HTTP API`,
                 },
             ],
         };
@@ -637,7 +637,7 @@ async function handleSendResponse(args) {
             content: [
                 {
                     type: "text",
-                    text: `Error sending response: ${error instanceof Error ? error.message : String(error)}`,
+                    text: `Error sending reply: ${error instanceof Error ? error.message : String(error)}`,
                 },
             ],
             isError: true,
@@ -858,8 +858,21 @@ function connectWebSocket(sessionId) {
             const msg = JSON.parse(data.toString());
             console.error("Received message from registry:", msg);
             // Forward to Claude Code via MCP notification
-            // This would need to be handled by the MCP server
-            // For now, we just log it
+            server.notification({
+                method: "notifications/claude/channel",
+                params: {
+                    content: msg.content || "(no content)",
+                    meta: {
+                        session_id: currentSessionId,
+                        message_id: msg.id,
+                        source: msg.source || "registry",
+                        timestamp: msg.timestamp,
+                        ...(msg.in_reply_to ? { in_reply_to: msg.in_reply_to } : {}),
+                    },
+                },
+            }).catch((err) => {
+                console.error("Failed to deliver message to Claude:", err);
+            });
         }
         catch (error) {
             console.error("Failed to parse WebSocket message:", error);

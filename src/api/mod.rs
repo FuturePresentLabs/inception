@@ -187,25 +187,29 @@ async fn handle_agent_socket(
         .update_status(&session_id, SessionStatus::Idle)
         .await;
 
-    // Spawn task to forward messages from channel to WebSocket
-    let mut send_task = tokio::spawn(async move {
-        while let Some(msg) = rx.recv().await {
-            if socket.send(WsMessage::Text(msg)).await.is_err() {
-                break;
+    // Handle both directions
+    loop {
+        tokio::select! {
+            // Forward messages from channel to WebSocket
+            Some(msg) = rx.recv() => {
+                if socket.send(WsMessage::Text(msg)).await.is_err() {
+                    break;
+                }
+            }
+            // Handle incoming messages from agent
+            Some(msg) = socket.recv() => {
+                match msg {
+                    Ok(WsMessage::Text(text)) => {
+                        // Process incoming message from agent
+                        // Could update status, store message, etc.
+                    }
+                    Ok(WsMessage::Close(_)) | Err(_) => {
+                        break;
+                    }
+                    _ => {}
+                }
             }
         }
-    });
-
-    // Handle incoming messages from agent
-    let recv_task = tokio::spawn(async move {
-        // TODO: Handle incoming messages from agent
-        // This would include responses, heartbeats, status updates
-    });
-
-    // Wait for either task to complete (connection closed)
-    tokio::select! {
-        _ = &mut send_task => {},
-        _ = recv_task => {},
     }
 
     // Unregister connection
