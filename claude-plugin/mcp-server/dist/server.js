@@ -1083,56 +1083,63 @@ function sendMessageViaWebSocket(msg) {
     messageQueue.push(msg);
     return false;
 }
-// HTTP hook server
+// HTTP hook server - uses dynamic port to support multiple Claude instances
+let hookServerPort = 0;
 function startHookServer() {
-    const server = http.createServer(async (req, res) => {
-        if (req.method !== "POST") {
-            res.writeHead(405);
-            res.end("Method not allowed");
-            return;
-        }
-        let body = "";
-        req.on("data", (chunk) => {
-            body += chunk.toString();
-        });
-        req.on("end", async () => {
-            try {
-                const data = JSON.parse(body);
-                const event = req.url?.replace("/hook/", "") || "unknown";
-                await handleHook(event, data);
-                res.writeHead(200, { "Content-Type": "application/json" });
-                res.end(JSON.stringify({ success: true }));
+    return new Promise((resolve, reject) => {
+        const server = http.createServer(async (req, res) => {
+            if (req.method !== "POST") {
+                res.writeHead(405);
+                res.end("Method not allowed");
+                return;
             }
-            catch (error) {
-                logger.error("Hook error:", error);
-                res.writeHead(500);
-                res.end(JSON.stringify({ error: String(error) }));
-            }
+            let body = "";
+            req.on("data", (chunk) => {
+                body += chunk.toString();
+            });
+            req.on("end", async () => {
+                try {
+                    const data = JSON.parse(body);
+                    const event = req.url?.replace("/hook/", "") || "unknown";
+                    await handleHook(event, data);
+                    res.writeHead(200, { "Content-Type": "application/json" });
+                    res.end(JSON.stringify({ success: true }));
+                }
+                catch (error) {
+                    logger.error("Hook error:", error);
+                    res.writeHead(500);
+                    res.end(JSON.stringify({ error: String(error) }));
+                }
+            });
         });
-    });
-    // Enable SO_REUSEADDR to allow port reuse after quick restart
-    server.on("error", (err) => {
-        if (err.code === "EADDRINUSE") {
-            logger.error(`Port ${HOOK_PORT} in use, retrying with reuse...`);
-            // Wait a bit and try again - the OS should allow reuse after the old process dies
-            setTimeout(() => {
-                server.close();
-                server.listen(HOOK_PORT);
-            }, 1000);
-        }
-        else {
+        server.on("error", (err) => {
             logger.error("Hook server error:", err);
-        }
-    });
-    server.listen(HOOK_PORT, () => {
-        logger.error(`Inception hook server listening on port ${HOOK_PORT}`);
+            reject(err);
+        });
+        // Use port 0 to let OS assign an available port
+        server.listen(0, () => {
+            const addr = server.address();
+            if (addr && typeof addr === "object") {
+                hookServerPort = addr.port;
+                logger.error(`Inception hook server listening on port ${hookServerPort}`);
+                resolve(hookServerPort);
+            }
+            else {
+                reject(new Error("Failed to get hook server port"));
+            }
+        });
     });
 }
 // Start server
 async function main() {
-    // Start HTTP hook server (but don't let it fail MCP startup)
+    // Start HTTP hook server with dynamic port
     try {
-        startHookServer();
+        const port = await startHookServer();
+        logger.error(`Hook server ready on port ${port}`);
+        // Write port to file so Claude can configure hooks
+        const portFile = join(STATE_DIR, "hook.port");
+        writeFileSync(portFile, String(port));
+        logger.error(`Hook port written to ${portFile}`);
     }
     catch (err) {
         logger.error("Hook server failed to start (non-fatal):", err);
