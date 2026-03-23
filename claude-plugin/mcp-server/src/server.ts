@@ -10,8 +10,8 @@ import {
 import { z } from "zod";
 
 // Configuration from environment
-const REGISTRY_URL = process.env.INCEPTION_REGISTRY_URL || "http://localhost:8080";
-const TOKEN = process.env.INCEPTION_TOKEN || "";
+let REGISTRY_URL = process.env.INCEPTION_REGISTRY_URL || "http://localhost:8080";
+let TOKEN = process.env.INCEPTION_TOKEN || "";
 
 // State
 let currentSessionId: string | null = null;
@@ -54,6 +54,24 @@ const STATUS_TOOL: Tool = {
   },
 };
 
+const CONFIGURE_TOOL: Tool = {
+  name: "inception_configure",
+  description: "Configure the Inception registry endpoint (URL, port, DNS)",
+  inputSchema: {
+    type: "object",
+    properties: {
+      registry_url: {
+        type: "string",
+        description: "Full registry URL (e.g., https://inception.example.com:8080)",
+      },
+      token: {
+        type: "string",
+        description: "Optional auth token for the registry",
+      },
+    },
+  },
+};
+
 // Create server
 const server = new Server({
   name: "inception",
@@ -63,7 +81,7 @@ const server = new Server({
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
-    tools: [ATTACH_TOOL, DETACH_TOOL, STATUS_TOOL],
+    tools: [ATTACH_TOOL, DETACH_TOOL, STATUS_TOOL, CONFIGURE_TOOL],
   };
 });
 
@@ -80,6 +98,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     case "inception_status":
       return handleStatus();
+
+    case "inception_configure":
+      return handleConfigure(args as { registry_url?: string; token?: string });
 
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -232,6 +253,69 @@ async function handleStatus() {
         {
           type: "text",
           text: `Error fetching status: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+async function handleConfigure(args: { registry_url?: string; token?: string }) {
+  try {
+    let changes: string[] = [];
+
+    if (args.registry_url) {
+      REGISTRY_URL = args.registry_url;
+      changes.push(`Registry URL: ${args.registry_url}`);
+    }
+
+    if (args.token) {
+      TOKEN = args.token;
+      changes.push("Auth token: [set]");
+    }
+
+    if (changes.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Current configuration:\nRegistry URL: ${REGISTRY_URL}\nToken: ${TOKEN ? "[set]" : "[not set]"}`,
+          },
+        ],
+      };
+    }
+
+    // Test connection
+    const response = await fetch(`${REGISTRY_URL}/health`, {
+      method: "GET",
+    });
+
+    if (!response.ok) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Configuration updated but connection test failed:\n${changes.join("\n")}\n\nError: ${response.statusText}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Configuration updated and connection successful:\n${changes.join("\n")}`,
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Error configuring: ${error instanceof Error ? error.message : String(error)}`,
         },
       ],
       isError: true,
