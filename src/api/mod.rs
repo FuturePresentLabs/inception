@@ -4,6 +4,7 @@ use axum::{
     response::Json,
     routing::{get, post},
     Router,
+    middleware,
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -33,7 +34,25 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/v1/sessions/:id/status", post(update_status))
         .route("/v1/sessions/:id/heartbeat", post(heartbeat))
         .route("/v1/sessions/:id/ws", get(websocket_handler))
+        .layer(middleware::from_fn(logging_middleware))
         .with_state(state)
+}
+
+/// Logging middleware for all requests
+async fn logging_middleware(
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> impl axum::response::IntoResponse {
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    
+    tracing::info!("→ {} {}", method, uri);
+    
+    let response = next.run(req).await;
+    
+    tracing::info!("← {} {} - {}", method, uri, response.status());
+    
+    response
 }
 
 /// Health check endpoint

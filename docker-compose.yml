@@ -10,13 +10,19 @@ services:
       - INCEPTION_PORT=18080
       - INCEPTION_DATABASE_URL=sqlite:///data/inception.db
       - INCEPTION_METRICS_ENABLED=true
-      - INCEPTION_METRICS_PORT=9090
+      - INCEPTION_METRICS_PORT=19090
+      - RUST_LOG=info
     volumes:
       - ./data:/data
       - ./certs:/certs:ro
     networks:
       - inception
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   inception:
