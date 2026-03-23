@@ -160,7 +160,7 @@ async fn update_status(
         return Err(StatusCode::NOT_FOUND);
     };
 
-    // Update agent state if provided
+    // Update agent state if provided (ephemeral, not persisted to DB)
     if let Some(agent_state) = req.agent_state {
         session.agent_state = Some(agent_state);
     }
