@@ -1,6 +1,7 @@
-use inception_registry::{api, config, session};
+use inception_registry::{api, config, session, websocket::WebSocketManager};
 
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use config::Config;
 use session::SqliteSessionStore;
 use tracing::{info};
@@ -31,9 +32,14 @@ async fn main() -> anyhow::Result<()> {
     let store = SqliteSessionStore::new(&config.database.url).await?;
     info!("Session store initialized");
 
+    // Initialize WebSocket manager
+    let ws_manager = Arc::new(RwLock::new(WebSocketManager::new()));
+    info!("WebSocket manager initialized");
+
     // Create app state
     let state = Arc::new(api::AppState {
         store: Arc::new(store),
+        ws_manager,
     });
 
     // Create router

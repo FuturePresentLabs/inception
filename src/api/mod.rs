@@ -1,20 +1,24 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, State, WebSocketUpgrade},
     http::StatusCode,
     response::Json,
     routing::{get, post},
     Router,
 };
 use std::sync::Arc;
+use tokio::sync::RwLock;
+use std::collections::HashMap;
 
 use crate::{
     models::{CreateSessionRequest, CreateSessionResponse, Message, Session, SessionId, SessionStatus},
     session::SessionStore,
+    websocket::{WebSocketManager, AgentConnection},
 };
 
 /// Application state shared across handlers
 pub struct AppState {
     pub store: Arc<dyn SessionStore>,
+    pub ws_manager: Arc<RwLock<WebSocketManager>>,
 }
 
 /// Create a new router
@@ -26,6 +30,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/v1/sessions/:id", get(get_session).patch(update_session))
         .route("/v1/sessions/:id/messages", post(send_message))
         .route("/v1/sessions/:id/status", post(update_status))
+        .route("/v1/sessions/:id/ws", get(websocket_handler))
         .with_state(state)
 }
 
@@ -112,12 +117,108 @@ async fn get_session(
 
 /// Send a message to a session
 async fn send_message(
-    State(_state): State<Arc<AppState>>,
-    Path(_id): Path<String>,
-    Json(_msg): Json<Message>,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(msg): Json<Message>,
 ) -> Result<StatusCode, StatusCode> {
-    // TODO: Implement message routing to WebSocket
+    let session_id = SessionId(id);
+    
+    // Try to send via WebSocket if agent is connected
+    let ws_manager = state.ws_manager.read().await;
+    if let Some(conn) = ws_manager.get_connection(&session_id).await {
+        // Send to connected agent
+        if conn.send_message(&msg).await.is_ok() {
+            return Ok(StatusCode::ACCEPTED);
+        }
+    }
+    drop(ws_manager);
+    
+    // Queue for later delivery if agent is offline
+    // TODO: Implement message queue
+    
     Ok(StatusCode::ACCEPTED)
+}
+
+/// WebSocket handler for agent connections
+async fn websocket_handler(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    ws: WebSocketUpgrade,
+) -> Result<impl axum::response::IntoResponse, StatusCode> {
+    let session_id = SessionId(id);
+    
+    // Verify session exists
+    let session = state
+        .store
+        .get(&session_id)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    
+    if session.is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    
+    Ok(ws.on_upgrade(move |socket| {
+        handle_agent_socket(state, session_id, socket)
+    }))
+}
+
+async fn handle_agent_socket(
+    state: Arc<AppState>,
+    session_id: SessionId,
+    mut socket: axum::extract::ws::WebSocket,
+) {
+    use axum::extract::ws::Message as WsMessage;
+    use tokio::sync::mpsc;
+    
+    // Create channel for sending messages to this agent
+    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+
+    // Register connection
+    let conn = crate::websocket::AgentConnection { sender: tx };
+    {
+        let mut manager = state.ws_manager.write().await;
+        manager.register_connection(session_id.clone(), conn).await;
+    }
+
+    // Update session status to idle (agent connected)
+    let _ = state
+        .store
+        .update_status(&session_id, SessionStatus::Idle)
+        .await;
+
+    // Spawn task to forward messages from channel to WebSocket
+    let mut send_task = tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if socket.send(WsMessage::Text(msg)).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Handle incoming messages from agent
+    let recv_task = tokio::spawn(async move {
+        // TODO: Handle incoming messages from agent
+        // This would include responses, heartbeats, status updates
+    });
+
+    // Wait for either task to complete (connection closed)
+    tokio::select! {
+        _ = &mut send_task => {},
+        _ = recv_task => {},
+    }
+
+    // Unregister connection
+    {
+        let mut manager = state.ws_manager.write().await;
+        manager.remove_connection(&session_id).await;
+    }
+
+    // Update session status to disconnected
+    let _ = state
+        .store
+        .update_status(&session_id, SessionStatus::Disconnected)
+        .await;
 }
 
 use crate::models::{UpdateSessionRequest, UpdateStatusRequest};
@@ -205,8 +306,10 @@ mod tests {
 
     async fn create_test_app() -> Router {
         let store = SqliteSessionStore::new_in_memory().await.unwrap();
+        let ws_manager = Arc::new(RwLock::new(crate::websocket::WebSocketManager::new()));
         let state = Arc::new(AppState {
             store: Arc::new(store),
+            ws_manager,
         });
         create_router(state)
     }
