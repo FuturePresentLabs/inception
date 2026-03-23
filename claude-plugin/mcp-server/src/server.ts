@@ -213,10 +213,27 @@ const UPDATE_STATUS_TOOL: Tool = {
 };
 
 // Create server with channel capabilities
-const server = new Server({
-  name: "inception",
-  version: "0.1.0",
-});
+const server = new Server(
+  {
+    name: "inception",
+    version: "0.1.0",
+  },
+  {
+    capabilities: {
+      experimental: {
+        "claude/channel": {},
+        "claude/channel/permission": {}, // Enable permission relay
+      },
+      tools: {},
+    },
+    instructions:
+      "Inception channel for remote Claude Code sessions. " +
+      "Use inception_attach to connect to a session. " +
+      "Messages arrive as <channel source=\"inception\" ...>. " +
+      "Reply with the reply tool. " +
+      "Permission requests will be relayed for remote approval.",
+  }
+);
 
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {

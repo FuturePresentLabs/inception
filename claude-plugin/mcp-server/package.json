@@ -38,7 +38,7 @@
   },
   "homepage": "https://github.com/FuturePresentLabs/inception#readme",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^0.4.0",
+    "@modelcontextprotocol/sdk": "^1.27.0",
     "ws": "^8.20.0",
     "zod": "^3.22.4"
   },
