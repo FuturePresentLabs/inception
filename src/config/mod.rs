@@ -183,9 +183,9 @@ mod tests {
     fn test_default_config() {
         let config = Config::default();
         assert_eq!(config.server.host, "0.0.0.0");
-        assert_eq!(config.server.port, 8080);
+        assert_eq!(config.server.port, 18080);
         assert!(!config.server.tls.enabled);
-        assert_eq!(config.metrics.port, 9090);
+        assert_eq!(config.metrics.port, 19090);
         assert!(config.metrics.enabled);
     }
 

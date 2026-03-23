@@ -99,6 +99,7 @@ async fn send_message(
 mod tests {
     use super::*;
     use crate::session::SqliteSessionStore;
+    use tower::ServiceExt;
 
     async fn create_test_app() -> Router {
         let store = SqliteSessionStore::new_in_memory().await.unwrap();
