@@ -2,6 +2,7 @@ pub mod api;
 pub mod config;
 pub mod models;
 pub mod session;
+pub mod webhook;
 pub mod websocket;
 
 // Re-export commonly used items
@@ -21,10 +22,13 @@ pub mod test_helpers {
     pub async fn create_test_app() -> axum::Router {
         let store = SqliteSessionStore::new_in_memory().await.unwrap();
         let ws_manager = Arc::new(RwLock::new(WebSocketManager::new()));
+        let config = crate::config::Config::default();
+        let webhook = crate::webhook::WebhookClient::new(&config);
         let state = Arc::new(AppState {
             store: Arc::new(store),
             ws_manager,
-            config: crate::config::Config::default(),
+            webhook,
+            config,
         });
         create_router(state)
     }

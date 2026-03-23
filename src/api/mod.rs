@@ -13,6 +13,7 @@ use tokio::sync::RwLock;
 use crate::{
     models::{CreateSessionRequest, CreateSessionResponse, Message, Session, SessionId, SessionStatus},
     session::SessionStore,
+    webhook::WebhookClient,
     websocket::{WebSocketManager, AgentConnection},
 };
 
@@ -20,6 +21,7 @@ use crate::{
 pub struct AppState {
     pub store: Arc<dyn SessionStore>,
     pub ws_manager: Arc<RwLock<WebSocketManager>>,
+    pub webhook: WebhookClient,
     pub config: crate::config::Config,
 }
 
@@ -284,7 +286,10 @@ async fn handle_agent_socket(
                 match msg {
                     Ok(WsMessage::Text(text)) => {
                         // Process incoming message from agent
-                        // Could update status, store message, etc.
+                        // Trigger webhook if configured
+                        if let Ok(message) = serde_json::from_str::<crate::models::Message>(&text) {
+                            state.webhook.send_message(&session_id, &message).await;
+                        }
                     }
                     Ok(WsMessage::Close(_)) | Err(_) => {
                         break;
@@ -553,10 +558,13 @@ mod tests {
     async fn create_test_app() -> Router {
         let store = SqliteSessionStore::new_in_memory().await.unwrap();
         let ws_manager = Arc::new(RwLock::new(crate::websocket::WebSocketManager::new()));
+        let config = crate::config::Config::default();
+        let webhook = crate::webhook::WebhookClient::new(&config);
         let state = Arc::new(AppState {
             store: Arc::new(store),
             ws_manager,
-            config: crate::config::Config::default(),
+            webhook,
+            config,
         });
         create_router(state)
     }

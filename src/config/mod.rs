@@ -129,6 +129,24 @@ impl Default for SecurityConfig {
     }
 }
 
+/// Webhook configuration for OpenClaw gateway integration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct WebhookConfig {
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl Default for WebhookConfig {
+    fn default() -> Self {
+        Self {
+            url: None,
+            enabled: false,
+        }
+    }
+}
+
 /// Application configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -142,6 +160,8 @@ pub struct Config {
     pub tracing: TracingConfig,
     #[serde(default)]
     pub security: SecurityConfig,
+    #[serde(default)]
+    pub webhook: WebhookConfig,
 }
 
 impl Default for Config {
@@ -152,6 +172,7 @@ impl Default for Config {
             metrics: MetricsConfig::default(),
             tracing: TracingConfig::default(),
             security: SecurityConfig::default(),
+            webhook: WebhookConfig::default(),
         }
     }
 }
@@ -192,6 +213,12 @@ impl Config {
 
         // Security config - auto-generate if not set
         config.security.admin_token = Self::load_or_generate_admin_token();
+
+        // Webhook config
+        if let Ok(url) = std::env::var("INCEPTION_WEBHOOK_URL") {
+            config.webhook.url = Some(url);
+            config.webhook.enabled = true;
+        }
 
         Ok(config)
     }

@@ -1,4 +1,4 @@
-use inception_registry::{api, config, session, websocket::WebSocketManager};
+use inception_registry::{api, config, session, webhook::WebhookClient, websocket::WebSocketManager};
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -42,10 +42,17 @@ async fn main() -> anyhow::Result<()> {
     let ws_manager = Arc::new(RwLock::new(WebSocketManager::new()));
     info!("WebSocket manager initialized");
 
+    // Initialize webhook client
+    let webhook = WebhookClient::new(&config);
+    if config.webhook.enabled {
+        info!("Webhook client enabled: {}", config.webhook.url.as_ref().unwrap());
+    }
+
     // Create app state
     let state = Arc::new(api::AppState {
         store: Arc::new(store),
         ws_manager,
+        webhook,
         config: config.clone(),
     });
 
