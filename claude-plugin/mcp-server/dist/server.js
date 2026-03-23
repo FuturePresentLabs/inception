@@ -1,9 +1,32 @@
 #!/usr/bin/env node
+/**
+ * Inception channel for Claude Code - distributed agent session management.
+ *
+ * Self-contained MCP server with session orchestration, status tracking, and
+ * rich metrics. State lives in ~/.claude/channels/inception/.env
+ */
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, } from "@modelcontextprotocol/sdk/types.js";
 import http from "http";
-// Configuration from environment
+import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
+const STATE_DIR = join(homedir(), ".claude", "channels", "inception");
+const ENV_FILE = join(STATE_DIR, ".env");
+// Load ~/.claude/channels/inception/.env into process.env. Real env wins.
+// Plugin-spawned servers don't get an env block — this is where config lives.
+try {
+    // Token is a credential — lock to owner. No-op on Windows (would need ACLs).
+    chmodSync(ENV_FILE, 0o600);
+    for (const line of readFileSync(ENV_FILE, "utf8").split("\n")) {
+        const m = line.match(/^(\w+)=(.*)$/);
+        if (m && process.env[m[1]] === undefined)
+            process.env[m[1]] = m[2];
+    }
+}
+catch { }
+// Configuration from environment (or defaults)
 let REGISTRY_URL = process.env.INCEPTION_REGISTRY_URL || "http://localhost:8080";
 let TOKEN = process.env.INCEPTION_TOKEN || "";
 const HOOK_PORT = parseInt(process.env.INCEPTION_HOOK_PORT || "18081");
@@ -278,47 +301,18 @@ async function handleStatus() {
         };
     }
 }
-import { writeFileSync, mkdirSync, existsSync, readFileSync } from "fs";
-import { join } from "path";
-import { homedir } from "os";
-function getConfigPath() {
-    return join(homedir(), ".config", "inception", "mcp-config.json");
-}
-function loadConfig() {
-    try {
-        const configPath = getConfigPath();
-        if (existsSync(configPath)) {
-            return JSON.parse(readFileSync(configPath, "utf-8"));
-        }
-    }
-    catch {
-        // Ignore errors
-    }
-    return {};
-}
-function saveConfig(config) {
-    const configPath = getConfigPath();
-    mkdirSync(join(homedir(), ".config", "inception"), { recursive: true });
-    writeFileSync(configPath, JSON.stringify(config, null, 2));
-}
-// Load config on startup
-const savedConfig = loadConfig();
-if (savedConfig.registry_url)
-    REGISTRY_URL = savedConfig.registry_url;
-if (savedConfig.token)
-    TOKEN = savedConfig.token;
 async function handleConfigure(args) {
     try {
         let changes = [];
-        const config = loadConfig();
+        const envVars = [];
         if (args.registry_url) {
             REGISTRY_URL = args.registry_url;
-            config.registry_url = args.registry_url;
+            envVars.push(`INCEPTION_REGISTRY_URL=${args.registry_url}`);
             changes.push(`Registry URL: ${args.registry_url}`);
         }
         if (args.token) {
             TOKEN = args.token;
-            config.token = args.token;
+            envVars.push(`INCEPTION_TOKEN=${args.token}`);
             changes.push("Auth token: [set]");
         }
         if (changes.length === 0) {
@@ -326,13 +320,16 @@ async function handleConfigure(args) {
                 content: [
                     {
                         type: "text",
-                        text: `Current configuration:\nRegistry URL: ${REGISTRY_URL}\nToken: ${TOKEN ? "[set]" : "[not set]"}\n\nConfig file: ${getConfigPath()}`,
+                        text: `Current configuration:\nRegistry URL: ${REGISTRY_URL}\nToken: ${TOKEN ? "[set]" : "[not set]"}\n\nConfig file: ${ENV_FILE}`,
                     },
                 ],
             };
         }
         // Save config
-        saveConfig(config);
+        // Save to ~/.claude/channels/inception/.env
+        mkdirSync(STATE_DIR, { recursive: true });
+        const envContent = envVars.join("\n") + "\n";
+        writeFileSync(ENV_FILE, envContent, { mode: 0o600 });
         // Test connection
         const response = await fetch(`${REGISTRY_URL}/health`, {
             method: "GET",
@@ -342,7 +339,7 @@ async function handleConfigure(args) {
                 content: [
                     {
                         type: "text",
-                        text: `Configuration saved but connection test failed:\n${changes.join("\n")}\n\nError: ${response.statusText}\n\nConfig saved to: ${getConfigPath()}`,
+                        text: `Configuration saved but connection test failed:\n${changes.join("\n")}\n\nError: ${response.statusText}\n\nConfig saved to: ${ENV_FILE}`,
                     },
                 ],
                 isError: true,
@@ -352,7 +349,7 @@ async function handleConfigure(args) {
             content: [
                 {
                     type: "text",
-                    text: `Configuration saved and connection successful:\n${changes.join("\n")}\n\nConfig file: ${getConfigPath()}`,
+                    text: `Configuration saved and connection successful:\n${changes.join("\n")}\n\nConfig file: ${ENV_FILE}`,
                 },
             ],
         };
