@@ -27,9 +27,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/health", get(health_check))
         .route("/v1/tokens", post(create_token))
         .route("/v1/sessions", post(create_session).get(list_sessions))
-        .route("/v1/sessions/:id", get(get_session).patch(update_session))
+        .route("/v1/sessions/:id", get(get_session).patch(update_session).delete(delete_session))
         .route("/v1/sessions/:id/messages", post(send_message))
         .route("/v1/sessions/:id/status", post(update_status))
+        .route("/v1/sessions/:id/heartbeat", post(heartbeat))
         .route("/v1/sessions/:id/ws", get(websocket_handler))
         .with_state(state)
 }
@@ -86,18 +87,58 @@ async fn create_session(
     Ok(Json(response))
 }
 
-/// List all sessions
+/// List all sessions with optional filtering
 async fn list_sessions(
     State(state): State<Arc<AppState>>,
+    axum::extract::Query(params): axum::extract::Query<ListSessionsQuery>,
 ) -> Result<Json<Vec<Session>>, StatusCode> {
     let sessions = state
         .store
         .list(None)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    // Apply filters
+    let filtered: Vec<Session> = sessions.into_iter()
+        .filter(|s| {
+            // Filter by status
+            if let Some(ref status) = params.status {
+                if s.status.to_string() != *status {
+                    return false;
+                }
+            }
+            
+            // Filter by agent_type
+            if let Some(ref agent_type) = params.agent_type {
+                if s.agent_type.to_string() != *agent_type {
+                    return false;
+                }
+            }
+            
+            // Filter by capability
+            if let Some(ref capability) = params.capability {
+                if !s.capabilities.contains(capability) {
+                    return false;
+                }
+            }
+            
+            // Filter connected sessions only
+            if params.connected_only.unwrap_or(false) {
+                // This would need to check WebSocket manager
+                // For now, just check if status is not disconnected
+                if s.status == SessionStatus::Disconnected {
+                    return false;
+                }
+            }
+            
+            true
+        })
+        .collect();
 
-    Ok(Json(sessions))
+    Ok(Json(filtered))
 }
+
+use crate::models::ListSessionsQuery;
 
 /// Get a specific session
 async fn get_session(
@@ -260,6 +301,57 @@ async fn update_session(
     // Update last_activity
     session.last_activity = chrono::Utc::now();
 
+    Ok(Json(session))
+}
+
+/// Delete/terminate a session
+async fn delete_session(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    let session_id = SessionId(id);
+    
+    state
+        .store
+        .delete(&session_id)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    
+    // Also remove from WebSocket manager if connected
+    {
+        let mut manager = state.ws_manager.write().await;
+        manager.remove_connection(&session_id).await;
+    }
+    
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Record heartbeat from agent
+async fn heartbeat(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Session>, StatusCode> {
+    let session_id = SessionId(id);
+    
+    let session_opt = state
+        .store
+        .get(&session_id)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    
+    let Some(mut session) = session_opt else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    
+    // Update heartbeat timestamp
+    session.last_heartbeat = Some(chrono::Utc::now());
+    session.last_activity = chrono::Utc::now();
+    
+    // If was disconnected, mark as idle
+    if session.status == SessionStatus::Disconnected {
+        session.status = SessionStatus::Idle;
+    }
+    
     Ok(Json(session))
 }
 
