@@ -21,6 +21,7 @@ pub struct AppState {
 pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health_check))
+        .route("/v1/tokens", post(create_token))
         .route("/v1/sessions", post(create_session).get(list_sessions))
         .route("/v1/sessions/:id", get(get_session).patch(update_session))
         .route("/v1/sessions/:id/messages", post(send_message))
@@ -31,6 +32,29 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 /// Health check endpoint
 async fn health_check() -> StatusCode {
     StatusCode::OK
+}
+
+use crate::models::{CreateTokenRequest, CreateTokenResponse};
+use uuid::Uuid;
+
+/// Create a new API token
+async fn create_token(
+    Json(req): Json<CreateTokenRequest>,
+) -> Result<Json<CreateTokenResponse>, StatusCode> {
+    // Generate token
+    let token = format!("inc_{}", Uuid::new_v4().to_string().replace("-", ""));
+    
+    // TODO: Store token in database with metadata
+    // For now, just return it (ephemeral)
+    
+    let response = CreateTokenResponse {
+        token: token.clone(),
+        name: req.name,
+        created_at: chrono::Utc::now(),
+        expires_at: req.expires_at,
+    };
+    
+    Ok(Json(response))
 }
 
 /// Create a new session

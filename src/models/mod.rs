@@ -156,6 +156,23 @@ pub enum AgentState {
     Error,
 }
 
+/// Token request
+#[derive(Debug, Deserialize)]
+pub struct CreateTokenRequest {
+    pub name: String,
+    #[serde(default)]
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+/// Token response
+#[derive(Debug, Serialize)]
+pub struct CreateTokenResponse {
+    pub token: String,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
 /// Message sent to/from a session
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
