@@ -114,6 +114,25 @@ const REPLY_TOOL = {
         required: ["content"],
     },
 };
+const VERDICT_TOOL = {
+    name: "verdict",
+    description: "Approve or deny a pending permission request (for remote tool approval)",
+    inputSchema: {
+        type: "object",
+        properties: {
+            request_id: {
+                type: "string",
+                description: "The 5-letter permission request ID (e.g., 'abcde')",
+            },
+            decision: {
+                type: "string",
+                description: "'allow' to approve, 'deny' to reject",
+                enum: ["allow", "deny"],
+            },
+        },
+        required: ["request_id", "decision"],
+    },
+};
 const METRICS_TOOL = {
     name: "inception_metrics",
     description: "Get detailed session metrics and activity history",
@@ -154,7 +173,7 @@ const UPDATE_STATUS_TOOL = {
         },
     },
 };
-// Create server
+// Create server with channel capabilities
 const server = new Server({
     name: "inception",
     version: "0.1.0",
@@ -162,7 +181,7 @@ const server = new Server({
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
-        tools: [ATTACH_TOOL, DETACH_TOOL, STATUS_TOOL, CONFIGURE_TOOL, UPDATE_STATUS_TOOL, METRICS_TOOL, REPLY_TOOL],
+        tools: [ATTACH_TOOL, DETACH_TOOL, STATUS_TOOL, CONFIGURE_TOOL, UPDATE_STATUS_TOOL, METRICS_TOOL, REPLY_TOOL, VERDICT_TOOL],
     };
 });
 // Handle tool calls
@@ -183,10 +202,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             return handleMetrics(args);
         case "reply":
             return handleReply(args);
+        case "verdict":
+            return handleVerdict(args);
         default:
             throw new Error(`Unknown tool: ${name}`);
     }
 });
+// Permission relay: Handle permission requests from Claude Code
+// This is called when Claude wants to use a tool that requires approval
+// Store pending permission requests
+const pendingPermissions = new Map();
+// Function to receive verdicts from registry
+async function handlePermissionVerdict(requestId, allowed) {
+    const pending = pendingPermissions.get(requestId);
+    if (!pending) {
+        console.error(`No pending permission request for ID: ${requestId}`);
+        return;
+    }
+    // Send verdict back to Claude Code
+    try {
+        await server.notification({
+            method: "notifications/claude/channel/permission",
+            params: {
+                request_id: requestId,
+                behavior: allowed ? "allow" : "deny",
+            },
+        });
+        console.error(`Permission ${requestId}: ${allowed ? "allowed" : "denied"}`);
+        pending.resolve(allowed);
+    }
+    catch (error) {
+        console.error("Failed to send permission verdict:", error);
+    }
+}
 async function handleAttach(args) {
     try {
         let sessionId = args.session_id;
@@ -579,6 +627,30 @@ function formatDuration(seconds) {
     if (seconds < 3600)
         return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
     return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+}
+async function handleVerdict(args) {
+    try {
+        await handlePermissionVerdict(args.request_id, args.decision === "allow");
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: `Permission ${args.request_id} ${args.decision}ed`,
+                },
+            ],
+        };
+    }
+    catch (error) {
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+                },
+            ],
+            isError: true,
+        };
+    }
 }
 async function handleReply(args) {
     try {
