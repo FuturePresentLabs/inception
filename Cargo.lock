@@ -1192,6 +1192,7 @@ dependencies = [
  "config",
  "futures",
  "futures-util",
+ "inception-registry",
  "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",

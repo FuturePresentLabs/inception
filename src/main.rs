@@ -1,7 +1,4 @@
-mod api;
-mod config;
-mod models;
-mod session;
+use inception_registry::{api, config, session};
 
 use std::sync::Arc;
 use config::Config;
