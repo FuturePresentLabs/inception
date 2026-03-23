@@ -277,34 +277,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 // Permission relay: Handle permission requests from Claude Code
-// This is called when Claude wants to use a tool that requires approval
-// Store pending permission requests
-const pendingPermissions = new Map<string, { resolve: (value: boolean) => void; timeout: NodeJS.Timeout }>();
-
-// Function to receive verdicts from registry
-async function handlePermissionVerdict(requestId: string, allowed: boolean): Promise<void> {
-  const pending = pendingPermissions.get(requestId);
-  if (!pending) {
-    console.error(`No pending permission request for ID: ${requestId}`);
-    return;
-  }
-
-  // Send verdict back to Claude Code
-  try {
-    await server.notification({
-      method: "notifications/claude/channel/permission",
-      params: {
-        request_id: requestId,
-        behavior: allowed ? "allow" : "deny",
-      },
-    });
-    console.error(`Permission ${requestId}: ${allowed ? "allowed" : "denied"}`);
-    pending.resolve(allowed);
-  } catch (error) {
-    console.error("Failed to send permission verdict:", error);
-  }
-}
-
 async function handleAttach(args: { session_id?: string }) {
   try {
     let sessionId = args.session_id;
@@ -735,14 +707,45 @@ function formatDuration(seconds: number): string {
 
 async function handleVerdict(args: { request_id: string; decision: "allow" | "deny" }) {
   try {
-    await handlePermissionVerdict(args.request_id, args.decision === "allow");
+    if (!currentSessionId) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Not attached to any session. Use inception_attach first.",
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    const verdict = {
+      type: "permission_verdict",
+      request_id: args.request_id,
+      behavior: args.decision,
+      timestamp: new Date().toISOString(),
+    };
+
+    // Send via WebSocket
+    if (sendMessageViaWebSocket(verdict)) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Verdict submitted: ${args.decision}`,
+          },
+        ],
+      };
+    }
+
     return {
       content: [
         {
           type: "text",
-          text: `Permission ${args.request_id} ${args.decision}ed`,
+          text: `Verdict queued (WebSocket not connected)`,
         },
       ],
+      isError: true,
     };
   } catch (error) {
     return {
@@ -772,6 +775,7 @@ async function handleReply(args: { content: string; reply_to?: string }) {
     }
 
     const response = {
+      type: "message",
       id: `resp-${Date.now()}`,
       content: args.content,
       in_reply_to: args.reply_to,
@@ -779,39 +783,26 @@ async function handleReply(args: { content: string; reply_to?: string }) {
       source: "claude_code",
     };
 
-    // Try WebSocket first
+    // Send via WebSocket
     if (sendMessageViaWebSocket(response)) {
       return {
         content: [
           {
             type: "text",
-            text: `Reply sent via WebSocket`,
+            text: `Reply sent`,
           },
         ],
       };
-    }
-
-    // Fallback to HTTP API
-    const httpResponse = await fetch(`${REGISTRY_URL}/v1/sessions/${currentSessionId}/messages`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${TOKEN}`,
-      },
-      body: JSON.stringify(response),
-    });
-
-    if (!httpResponse.ok) {
-      throw new Error(`Failed to send reply: ${httpResponse.statusText}`);
     }
 
     return {
       content: [
         {
           type: "text",
-          text: `Reply sent via HTTP API`,
+          text: `Reply queued (WebSocket not connected)`,
         },
       ],
+      isError: true,
     };
   } catch (error) {
     return {
@@ -1071,25 +1062,64 @@ function connectWebSocket(sessionId: string): void {
       const msg = JSON.parse(data.toString());
       console.error("Received message from registry:", msg);
 
-      // Forward to Claude Code via MCP notification
-      console.error("Forwarding to Claude via MCP notification...");
-      server.notification({
-        method: "notifications/claude/channel",
-        params: {
-          content: msg.content || "(no content)",
-          meta: {
-            session_id: currentSessionId,
-            message_id: msg.id,
-            source: msg.source || "registry",
-            timestamp: msg.timestamp,
-            ...(msg.in_reply_to ? { in_reply_to: msg.in_reply_to } : {}),
-          },
-        },
-      }).then(() => {
-        console.error("Successfully forwarded message to Claude");
-      }).catch((err: any) => {
-        console.error("Failed to deliver message to Claude:", err);
-      });
+      // Route based on message type
+      switch (msg.type) {
+        case "permission_request":
+          // Forward permission request to Claude
+          console.error("Forwarding permission request to Claude...");
+          server.notification({
+            method: "notifications/claude/channel/permission_request",
+            params: {
+              request_id: msg.request_id,
+              tool_name: msg.tool_name,
+              description: msg.description,
+              input_preview: msg.input_preview,
+            },
+          }).then(() => {
+            console.error("Successfully forwarded permission request to Claude");
+          }).catch((err: any) => {
+            console.error("Failed to deliver permission request to Claude:", err);
+          });
+          break;
+
+        case "permission_verdict":
+          // Forward permission verdict to Claude
+          console.error("Forwarding permission verdict to Claude...");
+          server.notification({
+            method: "notifications/claude/channel/permission",
+            params: {
+              request_id: msg.request_id,
+              behavior: msg.behavior,
+            },
+          }).then(() => {
+            console.error("Successfully forwarded permission verdict to Claude");
+          }).catch((err: any) => {
+            console.error("Failed to deliver permission verdict to Claude:", err);
+          });
+          break;
+
+        case "message":
+        default:
+          // Forward regular message to Claude
+          console.error("Forwarding message to Claude via MCP notification...");
+          server.notification({
+            method: "notifications/claude/channel",
+            params: {
+              content: msg.content || "(no content)",
+              meta: {
+                session_id: currentSessionId,
+                message_id: msg.id,
+                source: msg.source || "registry",
+                timestamp: msg.timestamp,
+                ...(msg.in_reply_to ? { in_reply_to: msg.in_reply_to } : {}),
+              },
+            },
+          }).then(() => {
+            console.error("Successfully forwarded message to Claude");
+          }).catch((err: any) => {
+            console.error("Failed to deliver message to Claude:", err);
+          });
+      }
     } catch (error) {
       console.error("Failed to parse WebSocket message:", error);
     }
