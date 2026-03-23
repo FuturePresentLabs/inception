@@ -26,15 +26,14 @@ const ENV_FILE = join(STATE_DIR, ".env");
 const LOG_FILE = process.env.INCEPTION_LOG_FILE || "/tmp/inception-mcp.log";
 
 // Simple file logger - writes to file instead of stderr (which is used for MCP communication)
-// Falls back to stderr if file logging fails
+// NEVER writes to stdout/stderr as that breaks MCP stdio protocol
 const logger = {
   error: (...args: any[]) => {
     try {
       const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
       appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [ERROR] ${msg}\n`);
     } catch {
-      // Fallback to stderr if file logging fails
-      console.error(...args);
+      // Silently drop logs if file logging fails - NEVER write to stderr
     }
   },
   info: (...args: any[]) => {
@@ -42,7 +41,7 @@ const logger = {
       const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
       appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [INFO] ${msg}\n`);
     } catch {
-      console.error(...args);
+      // Silently drop logs if file logging fails
     }
   },
   debug: (...args: any[]) => {
