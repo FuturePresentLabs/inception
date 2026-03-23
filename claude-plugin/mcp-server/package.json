@@ -1,14 +1,42 @@
 {
-  "name": "inception-mcp-server",
+  "name": "@futurepresentlabs/inception-mcp",
   "version": "0.1.0",
   "description": "MCP server for Inception remote session management",
   "type": "module",
   "main": "dist/server.js",
+  "bin": {
+    "inception-mcp": "dist/server.js"
+  },
+  "files": [
+    "dist/"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "prepublishOnly": "npm run build"
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FuturePresentLabs/inception.git",
+    "directory": "claude-plugin/mcp-server"
+  },
+  "keywords": [
+    "claude-code",
+    "mcp",
+    "remote",
+    "sessions",
+    "inception"
+  ],
+  "author": "Future Present Labs <hello@futurepresentlabs.com>",
+  "license": "AGPL-3.0",
+  "bugs": {
+    "url": "https://github.com/FuturePresentLabs/inception/issues"
+  },
+  "homepage": "https://github.com/FuturePresentLabs/inception#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^0.4.0",
     "ws": "^8.16.0",

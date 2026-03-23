@@ -15,7 +15,6 @@ const TOKEN = process.env.INCEPTION_TOKEN || "";
 
 // State
 let currentSessionId: string | null = null;
-let wsConnection: WebSocket | null = null;
 
 // Tool definitions
 const ATTACH_TOOL: Tool = {
@@ -56,17 +55,10 @@ const STATUS_TOOL: Tool = {
 };
 
 // Create server
-const server = new Server(
-  {
-    name: "inception",
-    version: "0.1.0",
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
-);
+const server = new Server({
+  name: "inception",
+  version: "0.1.0",
+});
 
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -134,7 +126,7 @@ async function handleAttach(args: { session_id?: string }) {
     const session = await response.json();
 
     // Store session ID
-    currentSessionId = sessionId;
+    currentSessionId = sessionId || null;
 
     return {
       content: [
@@ -171,12 +163,6 @@ async function handleDetach(args: { close?: boolean }) {
 
   const sessionId = currentSessionId;
   currentSessionId = null;
-
-  // Close WebSocket if open
-  if (wsConnection) {
-    wsConnection.close();
-    wsConnection = null;
-  }
 
   // Optionally terminate session
   if (args.close) {

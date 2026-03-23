@@ -5,7 +5,12 @@ MCP server and commands for connecting Claude Code to remote sessions via Incept
 ## Installation
 
 ```bash
-/plugin install inception@FuturePresentLabs
+/plugin install FuturePresentLabs/inception
+```
+
+Or for local development:
+```bash
+claude --plugin-dir ./claude-plugin
 ```
 
 ## Configuration
