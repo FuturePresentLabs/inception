@@ -319,13 +319,32 @@ async function handleAttach(args) {
         currentSessionId = sessionId || null;
         // Connect WebSocket for real-time messages
         connectWebSocket(sessionId);
+        // Rename port file to use session ID instead of PID
+        if (currentHookPort > 0) {
+            try {
+                const pidFile = join(STATE_DIR, `hook.${process.pid}.port`);
+                const sessionFile = join(STATE_DIR, `hook.${sessionId}.port`);
+                // Read and rewrite with session ID
+                writeFileSync(sessionFile, String(currentHookPort));
+                logger.error(`Hook port file renamed to ${sessionFile}`);
+                // Clean up PID file
+                try {
+                    const { unlinkSync } = await import("fs");
+                    unlinkSync(pidFile);
+                }
+                catch { }
+            }
+            catch (err) {
+                logger.error("Failed to rename hook port file:", err);
+            }
+        }
         // Construct WebSocket URL for display
         const wsUrl = `${REGISTRY_URL.replace("http://", "ws://").replace("https://", "wss://")}/v1/sessions/${sessionId}/ws`;
         return {
             content: [
                 {
                     type: "text",
-                    text: `Attached to session: ${sessionId}\nStatus: ${session.status}\nWebSocket: ${wsUrl}`,
+                    text: `Attached to session: ${sessionId}\nStatus: ${session.status}\nWebSocket: ${wsUrl}\nHook Port: ${currentHookPort}`,
                 },
             ],
         };
@@ -1130,34 +1149,20 @@ function startHookServer() {
         });
     });
 }
+// Track hook port for session-based file naming
+let currentHookPort = 0;
 // Start server
 async function main() {
     // Start HTTP hook server with dynamic port
     try {
-        const port = await startHookServer();
-        logger.error(`Hook server ready on port ${port}`);
+        currentHookPort = await startHookServer();
+        logger.error(`Hook server ready on port ${currentHookPort}`);
         // Write port to file so Claude can configure hooks
-        // Use PID in filename to support multiple Claude instances
+        // Use PID in filename initially, update to session ID after attach
         const pid = process.pid;
         const portFile = join(STATE_DIR, `hook.${pid}.port`);
-        writeFileSync(portFile, String(port));
+        writeFileSync(portFile, String(currentHookPort));
         logger.error(`Hook port written to ${portFile}`);
-        // Also write to a symlink for easy access
-        const latestPortFile = join(STATE_DIR, "hook.port");
-        try {
-            // Remove old symlink if exists
-            const { unlinkSync } = await import("fs");
-            try {
-                unlinkSync(latestPortFile);
-            }
-            catch { }
-            // Create new symlink
-            const { symlinkSync } = await import("fs");
-            symlinkSync(portFile, latestPortFile);
-        }
-        catch {
-            // Symlink might fail on Windows, ignore
-        }
     }
     catch (err) {
         logger.error("Hook server failed to start (non-fatal):", err);
