@@ -194,6 +194,22 @@ pub struct CreateTokenResponse {
     pub expires_at: Option<DateTime<Utc>>,
 }
 
+/// Permission request from MCP server
+#[derive(Debug, Deserialize)]
+pub struct PermissionRequest {
+    pub request_id: String,
+    pub tool_name: String,
+    pub description: String,
+    pub input_preview: String,
+}
+
+/// Permission verdict from user
+#[derive(Debug, Deserialize)]
+pub struct PermissionVerdict {
+    pub request_id: String,
+    pub behavior: String, // "allow" or "deny"
+}
+
 /// Query parameters for listing sessions
 #[derive(Debug, Deserialize)]
 pub struct ListSessionsQuery {

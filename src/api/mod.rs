@@ -33,6 +33,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/v1/sessions/:id/messages", post(send_message))
         .route("/v1/sessions/:id/status", post(update_status))
         .route("/v1/sessions/:id/heartbeat", post(heartbeat))
+        .route("/v1/sessions/:id/permissions", post(create_permission_request))
+        .route("/v1/sessions/:id/verdict", post(submit_verdict))
         .route("/v1/sessions/:id/ws", get(websocket_handler))
         .layer(middleware::from_fn(logging_middleware))
         .with_state(state)
@@ -434,6 +436,113 @@ async fn update_status(
     session.last_activity = chrono::Utc::now();
 
     Ok(Json(session))
+}
+
+use crate::models::{PermissionRequest, PermissionVerdict};
+use std::collections::HashMap;
+use tokio::sync::mpsc;
+
+/// Store pending permission requests
+static PERMISSION_REQUESTS: once_cell::sync::Lazy<RwLock<HashMap<String, mpsc::Sender<PermissionVerdict>>>> =
+    once_cell::sync::Lazy::new(|| RwLock::new(HashMap::new()));
+
+/// Create a permission request (from MCP server)
+async fn create_permission_request(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<PermissionRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let session_id = SessionId(id);
+    
+    // Verify session exists
+    let session = state
+        .store
+        .get(&session_id)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    
+    if session.is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    
+    // Forward to WebSocket if connected
+    let ws_manager = state.ws_manager.read().await;
+    if let Some(conn) = ws_manager.get_connection(&session_id).await {
+        let msg = serde_json::json!({
+            "type": "permission_request",
+            "request_id": req.request_id,
+            "tool_name": req.tool_name,
+            "description": req.description,
+            "input_preview": req.input_preview,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        });
+        
+        if let Ok(json_str) = serde_json::to_string(&msg) {
+            let _ = conn.sender.send(json_str);
+        }
+    }
+    drop(ws_manager);
+    
+    tracing::info!(
+        "Permission request {} for session {}: {}",
+        req.request_id,
+        session_id.0,
+        req.tool_name
+    );
+    
+    Ok(Json(serde_json::json!({
+        "status": "forwarded",
+        "request_id": req.request_id,
+    })))
+}
+
+/// Submit a verdict for a permission request
+async fn submit_verdict(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<PermissionVerdict>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let session_id = SessionId(id);
+    
+    // Verify session exists
+    let session = state
+        .store
+        .get(&session_id)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    
+    if session.is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    
+    // Forward verdict to WebSocket
+    let ws_manager = state.ws_manager.read().await;
+    if let Some(conn) = ws_manager.get_connection(&session_id).await {
+        let msg = serde_json::json!({
+            "type": "permission_verdict",
+            "request_id": req.request_id,
+            "behavior": req.behavior,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        });
+        
+        if let Ok(json_str) = serde_json::to_string(&msg) {
+            let _ = conn.sender.send(json_str);
+        }
+    }
+    drop(ws_manager);
+    
+    tracing::info!(
+        "Permission verdict {} for session {}: {}",
+        req.request_id,
+        session_id.0,
+        req.behavior
+    );
+    
+    Ok(Json(serde_json::json!({
+        "status": "submitted",
+        "request_id": req.request_id,
+        "behavior": req.behavior,
+    })))
 }
 
 #[cfg(test)]
