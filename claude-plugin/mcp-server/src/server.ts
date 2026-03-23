@@ -340,17 +340,51 @@ async function handleStatus() {
   }
 }
 
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
+
+function getConfigPath(): string {
+  return join(homedir(), ".config", "inception", "mcp-config.json");
+}
+
+function loadConfig(): { registry_url?: string; token?: string } {
+  try {
+    const configPath = getConfigPath();
+    if (existsSync(configPath)) {
+      return JSON.parse(readFileSync(configPath, "utf-8"));
+    }
+  } catch {
+    // Ignore errors
+  }
+  return {};
+}
+
+function saveConfig(config: { registry_url?: string; token?: string }): void {
+  const configPath = getConfigPath();
+  mkdirSync(join(homedir(), ".config", "inception"), { recursive: true });
+  writeFileSync(configPath, JSON.stringify(config, null, 2));
+}
+
+// Load config on startup
+const savedConfig = loadConfig();
+if (savedConfig.registry_url) REGISTRY_URL = savedConfig.registry_url;
+if (savedConfig.token) TOKEN = savedConfig.token;
+
 async function handleConfigure(args: { registry_url?: string; token?: string }) {
   try {
     let changes: string[] = [];
+    const config = loadConfig();
 
     if (args.registry_url) {
       REGISTRY_URL = args.registry_url;
+      config.registry_url = args.registry_url;
       changes.push(`Registry URL: ${args.registry_url}`);
     }
 
     if (args.token) {
       TOKEN = args.token;
+      config.token = args.token;
       changes.push("Auth token: [set]");
     }
 
@@ -359,11 +393,14 @@ async function handleConfigure(args: { registry_url?: string; token?: string }) 
         content: [
           {
             type: "text",
-            text: `Current configuration:\nRegistry URL: ${REGISTRY_URL}\nToken: ${TOKEN ? "[set]" : "[not set]"}`,
+            text: `Current configuration:\nRegistry URL: ${REGISTRY_URL}\nToken: ${TOKEN ? "[set]" : "[not set]"}\n\nConfig file: ${getConfigPath()}`,
           },
         ],
       };
     }
+
+    // Save config
+    saveConfig(config);
 
     // Test connection
     const response = await fetch(`${REGISTRY_URL}/health`, {
@@ -375,7 +412,7 @@ async function handleConfigure(args: { registry_url?: string; token?: string }) 
         content: [
           {
             type: "text",
-            text: `Configuration updated but connection test failed:\n${changes.join("\n")}\n\nError: ${response.statusText}`,
+            text: `Configuration saved but connection test failed:\n${changes.join("\n")}\n\nError: ${response.statusText}\n\nConfig saved to: ${getConfigPath()}`,
           },
         ],
         isError: true,
@@ -386,7 +423,7 @@ async function handleConfigure(args: { registry_url?: string; token?: string }) 
       content: [
         {
           type: "text",
-          text: `Configuration updated and connection successful:\n${changes.join("\n")}`,
+          text: `Configuration saved and connection successful:\n${changes.join("\n")}\n\nConfig file: ${getConfigPath()}`,
         },
       ],
     };
