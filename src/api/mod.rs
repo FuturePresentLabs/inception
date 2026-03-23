@@ -203,12 +203,14 @@ async fn send_message(
     if let Some(conn) = ws_manager.get_connection(&session_id).await {
         // Send to connected agent
         if conn.send_message(&msg).await.is_ok() {
+            tracing::info!("Message sent via WebSocket to session {}", session_id.0);
             return Ok(StatusCode::ACCEPTED);
         }
     }
     drop(ws_manager);
     
     // Queue for later delivery if agent is offline
+    tracing::info!("Message queued for offline session {}", session_id.0);
     // TODO: Implement message queue
     
     Ok(StatusCode::ACCEPTED)
@@ -246,6 +248,8 @@ async fn handle_agent_socket(
     use axum::extract::ws::Message as WsMessage;
     use tokio::sync::mpsc;
     
+    tracing::info!("WebSocket connection established for session {}", session_id.0);
+    
     // Create channel for sending messages to this agent
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
 
@@ -254,6 +258,7 @@ async fn handle_agent_socket(
     {
         let mut manager = state.ws_manager.write().await;
         manager.register_connection(session_id.clone(), conn).await;
+        tracing::info!("Session {} registered in WebSocket manager", session_id.0);
     }
 
     // Update session status to idle (agent connected)
@@ -261,6 +266,7 @@ async fn handle_agent_socket(
         .store
         .update_status(&session_id, SessionStatus::Idle)
         .await;
+    tracing::info!("Session {} status updated to idle", session_id.0);
 
     // Handle both directions
     loop {
@@ -291,6 +297,7 @@ async fn handle_agent_socket(
     {
         let mut manager = state.ws_manager.write().await;
         manager.remove_connection(&session_id).await;
+        tracing::info!("Session {} unregistered from WebSocket manager", session_id.0);
     }
 
     // Update session status to disconnected
@@ -298,6 +305,7 @@ async fn handle_agent_socket(
         .store
         .update_status(&session_id, SessionStatus::Disconnected)
         .await;
+    tracing::info!("WebSocket connection closed for session {}", session_id.0);
 }
 
 use crate::models::{UpdateSessionRequest, UpdateStatusRequest};

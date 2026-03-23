@@ -11,7 +11,7 @@ services:
       - INCEPTION_DATABASE_URL=sqlite:///data/inception.db
       - INCEPTION_METRICS_ENABLED=true
       - INCEPTION_METRICS_PORT=19090
-      - RUST_LOG=info
+      - RUST_LOG=inception_registry=debug,info
     volumes:
       - ./data:/data
       - ./certs:/certs:ro
