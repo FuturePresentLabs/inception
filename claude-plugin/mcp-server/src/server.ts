@@ -384,6 +384,7 @@ async function handleAttach(args: { session_id?: string }) {
     connectWebSocket(sessionId!);
 
     // Rename port file to use session ID instead of PID
+    // Also report hook port to registry
     if (currentHookPort > 0) {
       try {
         const pidFile = join(STATE_DIR, `hook.${process.pid}.port`);
@@ -396,8 +397,19 @@ async function handleAttach(args: { session_id?: string }) {
           const { unlinkSync } = await import("fs");
           unlinkSync(pidFile);
         } catch {}
+        
+        // Report hook port to registry
+        await fetch(`${REGISTRY_URL}/v1/sessions/${sessionId}/hook-port`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${TOKEN}`,
+          },
+          body: JSON.stringify({ hook_port: currentHookPort }),
+        });
+        logger.error(`Hook port ${currentHookPort} reported to registry`);
       } catch (err) {
-        logger.error("Failed to rename hook port file:", err);
+        logger.error("Failed to update hook port:", err);
       }
     }
 

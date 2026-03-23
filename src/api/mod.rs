@@ -37,6 +37,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/v1/sessions/:id/heartbeat", post(heartbeat))
         .route("/v1/sessions/:id/permissions", post(create_permission_request))
         .route("/v1/sessions/:id/verdict", post(submit_verdict))
+        .route("/v1/sessions/:id/hook-port", post(update_hook_port))
         .route("/v1/sessions/:id/ws", get(websocket_handler))
         .layer(middleware::from_fn(logging_middleware))
         .with_state(state)
@@ -547,6 +548,36 @@ async fn submit_verdict(
         "request_id": req.request_id,
         "behavior": req.behavior,
     })))
+}
+
+use crate::models::UpdateHookPortRequest;
+
+/// Update the hook port for a session
+async fn update_hook_port(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateHookPortRequest>,
+) -> Result<Json<Session>, StatusCode> {
+    let session_id = SessionId(id);
+    
+    // Get existing session
+    let session_opt = state
+        .store
+        .get(&session_id)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let Some(mut session) = session_opt else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+
+    // Update hook port
+    session.hook_port = Some(req.hook_port);
+    session.last_activity = chrono::Utc::now();
+
+    tracing::info!("Updated hook port for session {}: {}", session_id.0, req.hook_port);
+
+    Ok(Json(session))
 }
 
 #[cfg(test)]
