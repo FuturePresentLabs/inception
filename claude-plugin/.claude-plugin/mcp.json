@@ -1,0 +1,10 @@
+{
+  "inception": {
+    "command": "node",
+    "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-server/dist/server.js"],
+    "env": {
+      "INCEPTION_REGISTRY_URL": "${INCEPTION_REGISTRY_URL:-http://localhost:8080}",
+      "INCEPTION_TOKEN": "${INCEPTION_TOKEN}"
+    }
+  }
+}

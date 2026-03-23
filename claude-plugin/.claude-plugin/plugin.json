@@ -1,0 +1,8 @@
+{
+  "name": "inception",
+  "version": "0.1.0",
+  "description": "Spawn and attach to remote Claude Code sessions via Inception registry",
+  "license": "AGPL-3.0",
+  "keywords": ["claude-code", "remote", "sessions", "inception"],
+  "mcpServers": "./.claude-plugin/mcp.json"
+}
