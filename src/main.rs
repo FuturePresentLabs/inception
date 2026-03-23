@@ -26,7 +26,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Load configuration
     let config = Config::from_env()?;
-    info!("Configuration loaded: {:?}", config);
+    info!("Configuration loaded");
+    
+    // Log admin token (for initial setup)
+    if let Some(ref token) = config.security.admin_token {
+        info!("Admin token: {}", token);
+        info!("Use this token to generate API tokens: Authorization: Bearer {}", token);
+    }
 
     // Initialize session store
     let store = SqliteSessionStore::new(&config.database.url).await?;

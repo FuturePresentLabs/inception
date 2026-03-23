@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 /// Server configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -189,12 +190,46 @@ impl Config {
             config.metrics.port = port.parse()?;
         }
 
-        // Security config
-        if let Ok(token) = std::env::var("INCEPTION_ADMIN_TOKEN") {
-            config.security.admin_token = Some(token);
-        }
+        // Security config - auto-generate if not set
+        config.security.admin_token = Self::load_or_generate_admin_token();
 
         Ok(config)
+    }
+
+    /// Load admin token from file or generate new one
+    fn load_or_generate_admin_token() -> Option<String> {
+        let token_file = std::path::PathBuf::from("./data/admin_token");
+        
+        // Check environment variable first
+        if let Ok(token) = std::env::var("INCEPTION_ADMIN_TOKEN") {
+            // Save to file for persistence
+            if let Some(parent) = token_file.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&token_file, &token);
+            return Some(token);
+        }
+        
+        // Try to load from file
+        if let Ok(token) = std::fs::read_to_string(&token_file) {
+            if !token.trim().is_empty() {
+                return Some(token.trim().to_string());
+            }
+        }
+        
+        // Generate new token
+        let token = format!("admin_{}", uuid::Uuid::new_v4().to_string().replace("-", ""));
+        
+        // Save to file
+        if let Some(parent) = token_file.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if std::fs::write(&token_file, &token).is_ok() {
+            tracing::info!("Generated new admin token and saved to {:?}", token_file);
+            tracing::info!("Admin token: {}", token);
+        }
+        
+        Some(token)
     }
 }
 
