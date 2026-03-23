@@ -45,12 +45,28 @@ async fn main() -> anyhow::Result<()> {
     // Create router
     let app = api::create_router(state);
 
-    // Start server
+    // Start server with graceful shutdown
     let listener = tokio::net::TcpListener::bind(config.server.bind_addr()).await?;
     info!("Inception Registry ready on {}", config.server.bind_addr());
 
-    axum::serve(listener, app).await?;
+    // Handle shutdown signals
+    let shutdown = async {
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("Failed to create SIGTERM handler");
+        let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+            .expect("Failed to create SIGINT handler");
 
+        tokio::select! {
+            _ = sigterm.recv() => info!("Received SIGTERM, shutting down gracefully..."),
+            _ = sigint.recv() => info!("Received SIGINT, shutting down gracefully..."),
+        }
+    };
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .await?;
+
+    info!("Shutdown complete");
     Ok(())
 }
 
