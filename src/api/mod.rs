@@ -22,8 +22,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health_check))
         .route("/v1/sessions", post(create_session).get(list_sessions))
-        .route("/v1/sessions/:id", get(get_session))
+        .route("/v1/sessions/:id", get(get_session).patch(update_session))
         .route("/v1/sessions/:id/messages", post(send_message))
+        .route("/v1/sessions/:id/status", post(update_status))
         .with_state(state)
 }
 
@@ -93,6 +94,83 @@ async fn send_message(
 ) -> Result<StatusCode, StatusCode> {
     // TODO: Implement message routing to WebSocket
     Ok(StatusCode::ACCEPTED)
+}
+
+use crate::models::{UpdateSessionRequest, UpdateStatusRequest};
+
+/// Update session metadata
+async fn update_session(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateSessionRequest>,
+) -> Result<Json<Session>, StatusCode> {
+    let session_id = SessionId(id);
+
+    // Get existing session
+    let session_opt = state
+        .store
+        .get(&session_id)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let Some(mut session) = session_opt else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+
+    // Update fields if provided
+    if let Some(metadata) = req.metadata {
+        session.metadata = metadata;
+    }
+    if let Some(capabilities) = req.capabilities {
+        session.capabilities = capabilities;
+    }
+    if let Some(current_task) = req.current_task {
+        session.current_task = Some(current_task);
+    }
+
+    // Update last_activity
+    session.last_activity = chrono::Utc::now();
+
+    Ok(Json(session))
+}
+
+/// Update session status
+async fn update_status(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateStatusRequest>,
+) -> Result<Json<Session>, StatusCode> {
+    let session_id = SessionId(id);
+
+    // Update status in store
+    state
+        .store
+        .update_status(&session_id, req.status.clone())
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    // Get updated session
+    let session_opt = state
+        .store
+        .get(&session_id)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let Some(mut session) = session_opt else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+
+    // Update agent state if provided
+    if let Some(agent_state) = req.agent_state {
+        session.agent_state = Some(agent_state);
+    }
+    if let Some(progress) = req.progress {
+        session.progress = Some(progress);
+    }
+
+    session.last_activity = chrono::Utc::now();
+
+    Ok(Json(session))
 }
 
 #[cfg(test)]

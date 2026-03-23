@@ -72,6 +72,32 @@ const CONFIGURE_TOOL: Tool = {
   },
 };
 
+const UPDATE_STATUS_TOOL: Tool = {
+  name: "inception_update_status",
+  description: "Update session status, agent state, and progress",
+  inputSchema: {
+    type: "object",
+    properties: {
+      status: {
+        type: "string",
+        description: "Session status: spawning, idle, busy, disconnected, terminated",
+      },
+      agent_state: {
+        type: "string",
+        description: "Agent state: idle, thinking, executing, waiting_for_user, error",
+      },
+      progress: {
+        type: "number",
+        description: "Progress percentage (0.0 to 1.0)",
+      },
+      current_task: {
+        type: "string",
+        description: "Description of current task",
+      },
+    },
+  },
+};
+
 // Create server
 const server = new Server({
   name: "inception",
@@ -81,7 +107,7 @@ const server = new Server({
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
-    tools: [ATTACH_TOOL, DETACH_TOOL, STATUS_TOOL, CONFIGURE_TOOL],
+    tools: [ATTACH_TOOL, DETACH_TOOL, STATUS_TOOL, CONFIGURE_TOOL, UPDATE_STATUS_TOOL],
   };
 });
 
@@ -101,6 +127,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     case "inception_configure":
       return handleConfigure(args as { registry_url?: string; token?: string });
+
+    case "inception_update_status":
+      return handleUpdateStatus(args as { status?: string; agent_state?: string; progress?: number; current_task?: string });
 
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -316,6 +345,78 @@ async function handleConfigure(args: { registry_url?: string; token?: string }) 
         {
           type: "text",
           text: `Error configuring: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+async function handleUpdateStatus(args: { status?: string; agent_state?: string; progress?: number; current_task?: string }) {
+  try {
+    if (!currentSessionId) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Not attached to any session. Use inception_attach first.",
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    const updates: any = {};
+    if (args.status) updates.status = args.status;
+    if (args.agent_state) updates.agent_state = args.agent_state;
+    if (args.progress !== undefined) updates.progress = args.progress;
+
+    // Update status via API
+    const response = await fetch(`${REGISTRY_URL}/v1/sessions/${currentSessionId}/status`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify(updates),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to update status: ${response.statusText}`);
+    }
+
+    // Update current task if provided
+    if (args.current_task) {
+      const taskResponse = await fetch(`${REGISTRY_URL}/v1/sessions/${currentSessionId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${TOKEN}`,
+        },
+        body: JSON.stringify({ current_task: args.current_task }),
+      });
+
+      if (!taskResponse.ok) {
+        throw new Error(`Failed to update task: ${taskResponse.statusText}`);
+      }
+    }
+
+    const session = await response.json();
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Status updated for ${currentSessionId}\nStatus: ${session.status}\nAgent State: ${session.agent_state || "idle"}\nProgress: ${session.progress !== null ? (session.progress * 100).toFixed(0) + "%" : "N/A"}\nTask: ${session.current_task || "None"}`,
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Error updating status: ${error instanceof Error ? error.message : String(error)}`,
         },
       ],
       isError: true,

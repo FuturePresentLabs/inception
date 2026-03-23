@@ -60,6 +60,13 @@ pub struct Session {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub last_heartbeat: Option<DateTime<Utc>>,
+    pub last_activity: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_task: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_state: Option<AgentState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<f32>,
 }
 
 impl Session {
@@ -74,6 +81,10 @@ impl Session {
             created_at: now,
             updated_at: now,
             last_heartbeat: None,
+            last_activity: now,
+            current_task: None,
+            agent_state: Some(AgentState::Idle),
+            progress: None,
         }
     }
 
@@ -111,6 +122,38 @@ pub struct CreateSessionResponse {
     pub id: String,
     pub status: SessionStatus,
     pub websocket_url: String,
+}
+
+/// Request to update session metadata
+#[derive(Debug, Deserialize)]
+pub struct UpdateSessionRequest {
+    #[serde(default)]
+    pub metadata: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub capabilities: Option<Vec<String>>,
+    #[serde(default)]
+    pub current_task: Option<String>,
+}
+
+/// Request to update session status
+#[derive(Debug, Deserialize)]
+pub struct UpdateStatusRequest {
+    pub status: SessionStatus,
+    #[serde(default)]
+    pub agent_state: Option<AgentState>,
+    #[serde(default)]
+    pub progress: Option<f32>,
+}
+
+/// Agent execution state
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentState {
+    Idle,
+    Thinking,
+    Executing,
+    WaitingForUser,
+    Error,
 }
 
 /// Message sent to/from a session

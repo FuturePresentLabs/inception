@@ -219,6 +219,7 @@ struct SessionRow {
 
 impl SessionRow {
     fn to_session(self) -> Session {
+        let now = Utc::now();
         Session {
             id: SessionId(self.id),
             agent_type: match self.agent_type.as_str() {
@@ -239,9 +240,13 @@ impl SessionRow {
             },
             capabilities: serde_json::from_str(&self.capabilities).unwrap_or_default(),
             metadata: serde_json::from_str(&self.metadata).unwrap_or_default(),
-            created_at: self.created_at.parse().unwrap_or_else(|_| Utc::now()),
-            updated_at: self.updated_at.parse().unwrap_or_else(|_| Utc::now()),
+            created_at: self.created_at.parse().unwrap_or_else(|_| now),
+            updated_at: self.updated_at.parse().unwrap_or_else(|_| now),
             last_heartbeat: self.last_heartbeat.and_then(|t| t.parse().ok()),
+            last_activity: self.updated_at.parse().unwrap_or(now),
+            current_task: None,
+            agent_state: Some(crate::models::AgentState::Idle),
+            progress: None,
         }
     }
 }
