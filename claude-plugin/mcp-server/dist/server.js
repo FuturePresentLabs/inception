@@ -1110,6 +1110,20 @@ function startHookServer() {
             }
         });
     });
+    // Enable SO_REUSEADDR to allow port reuse after quick restart
+    server.on("error", (err) => {
+        if (err.code === "EADDRINUSE") {
+            logger.error(`Port ${HOOK_PORT} in use, retrying with reuse...`);
+            // Wait a bit and try again - the OS should allow reuse after the old process dies
+            setTimeout(() => {
+                server.close();
+                server.listen(HOOK_PORT);
+            }, 1000);
+        }
+        else {
+            logger.error("Hook server error:", err);
+        }
+    });
     server.listen(HOOK_PORT, () => {
         logger.error(`Inception hook server listening on port ${HOOK_PORT}`);
     });
