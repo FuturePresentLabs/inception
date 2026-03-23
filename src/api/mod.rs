@@ -438,7 +438,6 @@ async fn update_status(
 }
 
 use crate::models::{PermissionRequest, PermissionVerdict};
-use std::collections::HashMap;
 use tokio::sync::mpsc;
 
 /// Store pending permission requests
