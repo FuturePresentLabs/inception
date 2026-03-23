@@ -12,6 +12,7 @@ import http from "http";
 import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import WebSocket from "ws";
 const STATE_DIR = join(homedir(), ".claude", "channels", "inception");
 const ENV_FILE = join(STATE_DIR, ".env");
 // Load ~/.claude/channels/inception/.env into process.env. Real env wins.
@@ -32,6 +33,9 @@ let TOKEN = process.env.INCEPTION_TOKEN || "";
 const HOOK_PORT = parseInt(process.env.INCEPTION_HOOK_PORT || "18081");
 // State
 let currentSessionId = null;
+let wsConnection = null;
+let messageQueue = [];
+let isWsConnected = false;
 let sessionMetrics = {
     totalToolsUsed: 0,
     totalFilesEdited: 0,
@@ -197,6 +201,8 @@ async function handleAttach(args) {
         const session = await response.json();
         // Store session ID
         currentSessionId = sessionId || null;
+        // Connect WebSocket for real-time messages
+        connectWebSocket(sessionId);
         return {
             content: [
                 {
@@ -231,6 +237,12 @@ async function handleDetach(args) {
     }
     const sessionId = currentSessionId;
     currentSessionId = null;
+    // Close WebSocket connection
+    if (wsConnection) {
+        wsConnection.close();
+        wsConnection = null;
+        isWsConnected = false;
+    }
     // Optionally terminate session
     if (args.close) {
         try {
@@ -737,6 +749,61 @@ async function updateRegistryStatus(updates) {
     catch (error) {
         console.error("Failed to update registry status:", error);
     }
+}
+// WebSocket connection to registry
+function connectWebSocket(sessionId) {
+    if (wsConnection?.readyState === WebSocket.OPEN) {
+        return; // Already connected
+    }
+    const wsUrl = `${REGISTRY_URL.replace("http://", "ws://").replace("https://", "wss://")}/v1/sessions/${sessionId}/ws`;
+    console.error(`Connecting WebSocket to ${wsUrl}`);
+    wsConnection = new WebSocket(wsUrl, {
+        headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
+    });
+    wsConnection.on("open", () => {
+        console.error("WebSocket connected to registry");
+        isWsConnected = true;
+        // Send any queued messages
+        while (messageQueue.length > 0) {
+            const msg = messageQueue.shift();
+            wsConnection?.send(JSON.stringify(msg));
+        }
+    });
+    wsConnection.on("message", (data) => {
+        try {
+            const msg = JSON.parse(data.toString());
+            console.error("Received message from registry:", msg);
+            // Forward to Claude Code via MCP notification
+            // This would need to be handled by the MCP server
+            // For now, we just log it
+        }
+        catch (error) {
+            console.error("Failed to parse WebSocket message:", error);
+        }
+    });
+    wsConnection.on("close", () => {
+        console.error("WebSocket disconnected");
+        isWsConnected = false;
+        wsConnection = null;
+        // Attempt to reconnect after delay
+        setTimeout(() => {
+            if (currentSessionId) {
+                connectWebSocket(currentSessionId);
+            }
+        }, 5000);
+    });
+    wsConnection.on("error", (error) => {
+        console.error("WebSocket error:", error);
+    });
+}
+function sendMessageViaWebSocket(msg) {
+    if (wsConnection?.readyState === WebSocket.OPEN) {
+        wsConnection.send(JSON.stringify(msg));
+        return true;
+    }
+    // Queue for later
+    messageQueue.push(msg);
+    return false;
 }
 // HTTP hook server
 function startHookServer() {
