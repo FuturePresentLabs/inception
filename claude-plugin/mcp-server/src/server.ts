@@ -26,18 +26,32 @@ const ENV_FILE = join(STATE_DIR, ".env");
 const LOG_FILE = process.env.INCEPTION_LOG_FILE || "/tmp/inception-mcp.log";
 
 // Simple file logger - writes to file instead of stderr (which is used for MCP communication)
+// Falls back to stderr if file logging fails
 const logger = {
   error: (...args: any[]) => {
-    const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-    appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [ERROR] ${msg}\n`);
+    try {
+      const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [ERROR] ${msg}\n`);
+    } catch {
+      // Fallback to stderr if file logging fails
+      console.error(...args);
+    }
   },
   info: (...args: any[]) => {
-    const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-    appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [INFO] ${msg}\n`);
+    try {
+      const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [INFO] ${msg}\n`);
+    } catch {
+      console.error(...args);
+    }
   },
   debug: (...args: any[]) => {
-    const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-    appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [DEBUG] ${msg}\n`);
+    try {
+      const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+      appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [DEBUG] ${msg}\n`);
+    } catch {
+      // Silently drop debug logs if file logging fails
+    }
   }
 };
 
