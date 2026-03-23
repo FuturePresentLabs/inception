@@ -930,6 +930,7 @@ function connectWebSocket(sessionId) {
             const msg = JSON.parse(data.toString());
             console.error("Received message from registry:", msg);
             // Forward to Claude Code via MCP notification
+            console.error("Forwarding to Claude via MCP notification...");
             server.notification({
                 method: "notifications/claude/channel",
                 params: {
@@ -942,6 +943,8 @@ function connectWebSocket(sessionId) {
                         ...(msg.in_reply_to ? { in_reply_to: msg.in_reply_to } : {}),
                     },
                 },
+            }).then(() => {
+                console.error("Successfully forwarded message to Claude");
             }).catch((err) => {
                 console.error("Failed to deliver message to Claude:", err);
             });
@@ -1013,6 +1016,8 @@ async function main() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error("Inception MCP server running on stdio");
+    console.error("Channel capabilities: claude/channel enabled");
+    console.error("Waiting for WebSocket connections...");
 }
 main().catch((error) => {
     console.error("Fatal error:", error);
