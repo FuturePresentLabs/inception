@@ -10,12 +10,28 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema, } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import http from "http";
-import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, chmodSync, appendFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import WebSocket from "ws";
 const STATE_DIR = join(homedir(), ".claude", "channels", "inception");
 const ENV_FILE = join(STATE_DIR, ".env");
+const LOG_FILE = process.env.INCEPTION_LOG_FILE || "/tmp/inception-mcp.log";
+// Simple file logger - writes to file instead of stderr (which is used for MCP communication)
+const logger = {
+    error: (...args) => {
+        const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+        appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [ERROR] ${msg}\n`);
+    },
+    info: (...args) => {
+        const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+        appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [INFO] ${msg}\n`);
+    },
+    debug: (...args) => {
+        const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+        appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [DEBUG] ${msg}\n`);
+    }
+};
 // Load ~/.claude/channels/inception/.env into process.env. Real env wins.
 // Plugin-spawned servers don't get an env block — this is where config lives.
 try {
@@ -234,7 +250,7 @@ const PermissionRequestSchema = z.object({
 });
 // @ts-ignore - SDK type compatibility
 server.setNotificationHandler(PermissionRequestSchema, async ({ params }) => {
-    console.error(`Permission request ${params.request_id}: ${params.tool_name}`);
+    logger.error(`Permission request ${params.request_id}: ${params.tool_name}`);
     // Forward to registry via WebSocket
     const msg = {
         type: "permission_request",
@@ -245,10 +261,10 @@ server.setNotificationHandler(PermissionRequestSchema, async ({ params }) => {
         timestamp: new Date().toISOString(),
     };
     if (sendMessageViaWebSocket(msg)) {
-        console.error("Permission request forwarded to registry");
+        logger.error("Permission request forwarded to registry");
     }
     else {
-        console.error("Permission request queued (WebSocket offline)");
+        logger.error("Permission request queued (WebSocket offline)");
     }
 });
 async function handleAttach(args) {
@@ -939,7 +955,7 @@ async function updateRegistryStatus(updates) {
         }
     }
     catch (error) {
-        console.error("Failed to update registry status:", error);
+        logger.error("Failed to update registry status:", error);
     }
 }
 // WebSocket connection to registry
@@ -948,12 +964,12 @@ function connectWebSocket(sessionId) {
         return; // Already connected
     }
     const wsUrl = `${REGISTRY_URL.replace("http://", "ws://").replace("https://", "wss://")}/v1/sessions/${sessionId}/ws`;
-    console.error(`Connecting WebSocket to ${wsUrl}`);
+    logger.error(`Connecting WebSocket to ${wsUrl}`);
     wsConnection = new WebSocket(wsUrl, {
         headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
     });
     wsConnection.on("open", () => {
-        console.error("WebSocket connected to registry");
+        logger.error("WebSocket connected to registry");
         isWsConnected = true;
         // Send any queued messages
         while (messageQueue.length > 0) {
@@ -964,13 +980,13 @@ function connectWebSocket(sessionId) {
     wsConnection.on("message", (data) => {
         try {
             const msg = JSON.parse(data.toString());
-            console.error("Received message from registry:", msg);
+            logger.error("Received message from registry:", msg);
             // Route based on message type (default to "message" if not specified)
             const msgType = msg.type || "message";
             switch (msgType) {
                 case "permission_request":
                     // Forward permission request to Claude
-                    console.error("Forwarding permission request to Claude...");
+                    logger.error("Forwarding permission request to Claude...");
                     server.notification({
                         method: "notifications/claude/channel/permission_request",
                         params: {
@@ -980,14 +996,14 @@ function connectWebSocket(sessionId) {
                             input_preview: msg.input_preview,
                         },
                     }).then(() => {
-                        console.error("Successfully forwarded permission request to Claude");
+                        logger.error("Successfully forwarded permission request to Claude");
                     }).catch((err) => {
-                        console.error("Failed to deliver permission request to Claude:", err);
+                        logger.error("Failed to deliver permission request to Claude:", err);
                     });
                     break;
                 case "permission_verdict":
                     // Forward permission verdict to Claude
-                    console.error("Forwarding permission verdict to Claude...");
+                    logger.error("Forwarding permission verdict to Claude...");
                     server.notification({
                         method: "notifications/claude/channel/permission",
                         params: {
@@ -995,15 +1011,15 @@ function connectWebSocket(sessionId) {
                             behavior: msg.behavior,
                         },
                     }).then(() => {
-                        console.error("Successfully forwarded permission verdict to Claude");
+                        logger.error("Successfully forwarded permission verdict to Claude");
                     }).catch((err) => {
-                        console.error("Failed to deliver permission verdict to Claude:", err);
+                        logger.error("Failed to deliver permission verdict to Claude:", err);
                     });
                     break;
                 case "message":
                 default:
                     // Forward regular message to Claude
-                    console.error("Forwarding message to Claude via MCP notification...");
+                    logger.error("Forwarding message to Claude via MCP notification...");
                     server.notification({
                         method: "notifications/claude/channel",
                         params: {
@@ -1017,18 +1033,18 @@ function connectWebSocket(sessionId) {
                             },
                         },
                     }).then(() => {
-                        console.error("Successfully forwarded message to Claude");
+                        logger.error("Successfully forwarded message to Claude");
                     }).catch((err) => {
-                        console.error("Failed to deliver message to Claude:", err);
+                        logger.error("Failed to deliver message to Claude:", err);
                     });
             }
         }
         catch (error) {
-            console.error("Failed to parse WebSocket message:", error);
+            logger.error("Failed to parse WebSocket message:", error);
         }
     });
     wsConnection.on("close", () => {
-        console.error("WebSocket disconnected");
+        logger.error("WebSocket disconnected");
         isWsConnected = false;
         wsConnection = null;
         // Attempt to reconnect after delay
@@ -1039,7 +1055,7 @@ function connectWebSocket(sessionId) {
         }, 5000);
     });
     wsConnection.on("error", (error) => {
-        console.error("WebSocket error:", error);
+        logger.error("WebSocket error:", error);
     });
 }
 function sendMessageViaWebSocket(msg) {
@@ -1072,14 +1088,14 @@ function startHookServer() {
                 res.end(JSON.stringify({ success: true }));
             }
             catch (error) {
-                console.error("Hook error:", error);
+                logger.error("Hook error:", error);
                 res.writeHead(500);
                 res.end(JSON.stringify({ error: String(error) }));
             }
         });
     });
     server.listen(HOOK_PORT, () => {
-        console.error(`Inception hook server listening on port ${HOOK_PORT}`);
+        logger.error(`Inception hook server listening on port ${HOOK_PORT}`);
     });
 }
 // Start server
@@ -1089,12 +1105,12 @@ async function main() {
     // Start MCP server
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error("Inception MCP server running on stdio");
-    console.error("Channel capabilities: claude/channel enabled");
-    console.error("Waiting for WebSocket connections...");
+    logger.error("Inception MCP server running on stdio");
+    logger.error("Channel capabilities: claude/channel enabled");
+    logger.error("Waiting for WebSocket connections...");
 }
 main().catch((error) => {
-    console.error("Fatal error:", error);
+    logger.error("Fatal error:", error);
     process.exit(1);
 });
 //# sourceMappingURL=server.js.map

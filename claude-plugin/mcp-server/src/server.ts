@@ -16,13 +16,30 @@ import {
 import { z } from "zod";
 import http from "http";
 import { spawn } from "child_process";
-import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, chmodSync, appendFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import WebSocket from "ws";
 
 const STATE_DIR = join(homedir(), ".claude", "channels", "inception");
 const ENV_FILE = join(STATE_DIR, ".env");
+const LOG_FILE = process.env.INCEPTION_LOG_FILE || "/tmp/inception-mcp.log";
+
+// Simple file logger - writes to file instead of stderr (which is used for MCP communication)
+const logger = {
+  error: (...args: any[]) => {
+    const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+    appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [ERROR] ${msg}\n`);
+  },
+  info: (...args: any[]) => {
+    const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+    appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [INFO] ${msg}\n`);
+  },
+  debug: (...args: any[]) => {
+    const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+    appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [DEBUG] ${msg}\n`);
+  }
+};
 
 // Load ~/.claude/channels/inception/.env into process.env. Real env wins.
 // Plugin-spawned servers don't get an env block — this is where config lives.
@@ -289,7 +306,7 @@ const PermissionRequestSchema = z.object({
 
 // @ts-ignore - SDK type compatibility
 server.setNotificationHandler(PermissionRequestSchema, async ({ params }) => {
-  console.error(`Permission request ${params.request_id}: ${params.tool_name}`);
+  logger.error(`Permission request ${params.request_id}: ${params.tool_name}`);
   
   // Forward to registry via WebSocket
   const msg = {
@@ -302,9 +319,9 @@ server.setNotificationHandler(PermissionRequestSchema, async ({ params }) => {
   };
   
   if (sendMessageViaWebSocket(msg)) {
-    console.error("Permission request forwarded to registry");
+    logger.error("Permission request forwarded to registry");
   } else {
-    console.error("Permission request queued (WebSocket offline)");
+    logger.error("Permission request queued (WebSocket offline)");
   }
 });
 
@@ -1062,7 +1079,7 @@ async function updateRegistryStatus(updates: {
       });
     }
   } catch (error) {
-    console.error("Failed to update registry status:", error);
+    logger.error("Failed to update registry status:", error);
   }
 }
 
@@ -1074,14 +1091,14 @@ function connectWebSocket(sessionId: string): void {
 
   const wsUrl = `${REGISTRY_URL.replace("http://", "ws://").replace("https://", "wss://")}/v1/sessions/${sessionId}/ws`;
 
-  console.error(`Connecting WebSocket to ${wsUrl}`);
+  logger.error(`Connecting WebSocket to ${wsUrl}`);
 
   wsConnection = new WebSocket(wsUrl, {
     headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : undefined,
   });
 
   wsConnection.on("open", () => {
-    console.error("WebSocket connected to registry");
+    logger.error("WebSocket connected to registry");
     isWsConnected = true;
 
     // Send any queued messages
@@ -1094,14 +1111,14 @@ function connectWebSocket(sessionId: string): void {
   wsConnection.on("message", (data: WebSocket.Data) => {
     try {
       const msg = JSON.parse(data.toString());
-      console.error("Received message from registry:", msg);
+      logger.error("Received message from registry:", msg);
 
       // Route based on message type (default to "message" if not specified)
       const msgType = msg.type || "message";
       switch (msgType) {
         case "permission_request":
           // Forward permission request to Claude
-          console.error("Forwarding permission request to Claude...");
+          logger.error("Forwarding permission request to Claude...");
           server.notification({
             method: "notifications/claude/channel/permission_request",
             params: {
@@ -1111,15 +1128,15 @@ function connectWebSocket(sessionId: string): void {
               input_preview: msg.input_preview,
             },
           }).then(() => {
-            console.error("Successfully forwarded permission request to Claude");
+            logger.error("Successfully forwarded permission request to Claude");
           }).catch((err: any) => {
-            console.error("Failed to deliver permission request to Claude:", err);
+            logger.error("Failed to deliver permission request to Claude:", err);
           });
           break;
 
         case "permission_verdict":
           // Forward permission verdict to Claude
-          console.error("Forwarding permission verdict to Claude...");
+          logger.error("Forwarding permission verdict to Claude...");
           server.notification({
             method: "notifications/claude/channel/permission",
             params: {
@@ -1127,16 +1144,16 @@ function connectWebSocket(sessionId: string): void {
               behavior: msg.behavior,
             },
           }).then(() => {
-            console.error("Successfully forwarded permission verdict to Claude");
+            logger.error("Successfully forwarded permission verdict to Claude");
           }).catch((err: any) => {
-            console.error("Failed to deliver permission verdict to Claude:", err);
+            logger.error("Failed to deliver permission verdict to Claude:", err);
           });
           break;
 
         case "message":
         default:
           // Forward regular message to Claude
-          console.error("Forwarding message to Claude via MCP notification...");
+          logger.error("Forwarding message to Claude via MCP notification...");
           server.notification({
             method: "notifications/claude/channel",
             params: {
@@ -1150,18 +1167,18 @@ function connectWebSocket(sessionId: string): void {
               },
             },
           }).then(() => {
-            console.error("Successfully forwarded message to Claude");
+            logger.error("Successfully forwarded message to Claude");
           }).catch((err: any) => {
-            console.error("Failed to deliver message to Claude:", err);
+            logger.error("Failed to deliver message to Claude:", err);
           });
       }
     } catch (error) {
-      console.error("Failed to parse WebSocket message:", error);
+      logger.error("Failed to parse WebSocket message:", error);
     }
   });
 
   wsConnection.on("close", () => {
-    console.error("WebSocket disconnected");
+    logger.error("WebSocket disconnected");
     isWsConnected = false;
     wsConnection = null;
 
@@ -1174,7 +1191,7 @@ function connectWebSocket(sessionId: string): void {
   });
 
   wsConnection.on("error", (error) => {
-    console.error("WebSocket error:", error);
+    logger.error("WebSocket error:", error);
   });
 }
 
@@ -1212,7 +1229,7 @@ function startHookServer(): void {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ success: true }));
       } catch (error) {
-        console.error("Hook error:", error);
+        logger.error("Hook error:", error);
         res.writeHead(500);
         res.end(JSON.stringify({ error: String(error) }));
       }
@@ -1220,7 +1237,7 @@ function startHookServer(): void {
   });
 
   server.listen(HOOK_PORT, () => {
-    console.error(`Inception hook server listening on port ${HOOK_PORT}`);
+    logger.error(`Inception hook server listening on port ${HOOK_PORT}`);
   });
 }
 
@@ -1232,12 +1249,12 @@ async function main() {
   // Start MCP server
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Inception MCP server running on stdio");
-  console.error("Channel capabilities: claude/channel enabled");
-  console.error("Waiting for WebSocket connections...");
+  logger.error("Inception MCP server running on stdio");
+  logger.error("Channel capabilities: claude/channel enabled");
+  logger.error("Waiting for WebSocket connections...");
 }
 
 main().catch((error) => {
-  console.error("Fatal error:", error);
+  logger.error("Fatal error:", error);
   process.exit(1);
 });
