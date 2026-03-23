@@ -90,8 +90,6 @@ pub struct Session {
     pub progress: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hook_port: Option<u16>,
 }
 
 impl Session {
@@ -216,11 +214,7 @@ pub struct PermissionVerdict {
     pub behavior: String, // "allow" or "deny"
 }
 
-/// Request to update hook port
-#[derive(Debug, Deserialize)]
-pub struct UpdateHookPortRequest {
-    pub hook_port: u16,
-}
+
 
 /// Query parameters for listing sessions
 #[derive(Debug, Deserialize)]

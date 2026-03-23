@@ -383,35 +383,7 @@ async function handleAttach(args: { session_id?: string }) {
     // Connect WebSocket for real-time messages
     connectWebSocket(sessionId!);
 
-    // Rename port file to use session ID instead of PID
-    // Also report hook port to registry
-    if (currentHookPort > 0) {
-      try {
-        const pidFile = join(STATE_DIR, `hook.${process.pid}.port`);
-        const sessionFile = join(STATE_DIR, `hook.${sessionId}.port`);
-        // Read and rewrite with session ID
-        writeFileSync(sessionFile, String(currentHookPort));
-        logger.error(`Hook port file renamed to ${sessionFile}`);
-        // Clean up PID file
-        try {
-          const { unlinkSync } = await import("fs");
-          unlinkSync(pidFile);
-        } catch {}
-        
-        // Report hook port to registry
-        await fetch(`${REGISTRY_URL}/v1/sessions/${sessionId}/hook-port`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${TOKEN}`,
-          },
-          body: JSON.stringify({ hook_port: currentHookPort }),
-        });
-        logger.error(`Hook port ${currentHookPort} reported to registry`);
-      } catch (err) {
-        logger.error("Failed to update hook port:", err);
-      }
-    }
+
 
     // Construct WebSocket URL for display
     const wsUrl = `${REGISTRY_URL.replace("http://", "ws://").replace("https://", "wss://")}/v1/sessions/${sessionId}/ws`;
@@ -420,7 +392,7 @@ async function handleAttach(args: { session_id?: string }) {
       content: [
         {
           type: "text",
-          text: `Attached to session: ${sessionId}\nStatus: ${session.status}\nWebSocket: ${wsUrl}\nHook Port: ${currentHookPort}`,
+          text: `Attached to session: ${sessionId}\nStatus: ${session.status}\nWebSocket: ${wsUrl}\nHook Port: ${hookServerPort}\n\nTo configure Claude hooks, use:\n  http://localhost:${hookServerPort}/hook/<event>\n\nInclude session_id in hook payload: { "session_id": "${sessionId}", ... }`,
         },
       ],
     };
@@ -1248,11 +1220,20 @@ function sendMessageViaWebSocket(msg: any): boolean {
   return false;
 }
 
-// HTTP hook server - uses dynamic port to support multiple Claude instances
+// HTTP hook server - shared across all sessions
+// Session ID is passed in the request body
 let hookServerPort: number = 0;
+let isHookServerRunning = false;
 
 function startHookServer(): Promise<number> {
   return new Promise((resolve, reject) => {
+    // Check if already running
+    if (isHookServerRunning && hookServerPort > 0) {
+      logger.error(`Hook server already running on port ${hookServerPort}`);
+      resolve(hookServerPort);
+      return;
+    }
+
     const server = http.createServer(async (req, res) => {
       if (req.method !== "POST") {
         res.writeHead(405);
@@ -1269,8 +1250,19 @@ function startHookServer(): Promise<number> {
         try {
           const data = JSON.parse(body);
           const event = req.url?.replace("/hook/", "") || "unknown";
+          
+          // Extract session ID from payload - hooks should include which session they belong to
+          const sessionId = data.session_id || currentSessionId;
+          
+          if (!sessionId) {
+            logger.error("Hook received without session_id");
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: "Missing session_id" }));
+            return;
+          }
 
-          await handleHook(event, data);
+          // Handle hook for specific session
+          await handleHookForSession(event, data, sessionId);
 
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ success: true }));
@@ -1283,15 +1275,25 @@ function startHookServer(): Promise<number> {
     });
 
     server.on("error", (err: any) => {
-      logger.error("Hook server error:", err);
-      reject(err);
+      if (err.code === "EADDRINUSE") {
+        // Port already in use - another MCP instance is running the hook server
+        logger.error("Hook server port in use, assuming another instance is running it");
+        // Try to connect to existing server to verify
+        // For now, just resolve with the configured port
+        resolve(hookServerPort);
+      } else {
+        logger.error("Hook server error:", err);
+        reject(err);
+      }
     });
 
-    // Use port 0 to let OS assign an available port
-    server.listen(0, () => {
+    // Use configured port or let OS assign
+    const port = HOOK_PORT;
+    server.listen(port, () => {
       const addr = server.address();
       if (addr && typeof addr === "object") {
         hookServerPort = addr.port;
+        isHookServerRunning = true;
         logger.error(`Inception hook server listening on port ${hookServerPort}`);
         resolve(hookServerPort);
       } else {
@@ -1301,21 +1303,29 @@ function startHookServer(): Promise<number> {
   });
 }
 
-// Track hook port for session-based file naming
-let currentHookPort: number = 0;
+// Handle hook for a specific session
+async function handleHookForSession(event: string, data: any, sessionId: string): Promise<void> {
+  logger.error(`Hook ${event} for session ${sessionId}`);
+  
+  // Only process if this is our current session
+  if (sessionId !== currentSessionId) {
+    logger.error(`Ignoring hook for different session: ${sessionId}`);
+    return;
+  }
+  
+  await handleHook(event, data);
+}
 
 // Start server
 async function main() {
-  // Start HTTP hook server with dynamic port
+  // Start HTTP hook server (shared across all sessions)
   try {
-    currentHookPort = await startHookServer();
-    logger.error(`Hook server ready on port ${currentHookPort}`);
+    await startHookServer();
+    logger.error(`Hook server ready on port ${hookServerPort}`);
     
     // Write port to file so Claude can configure hooks
-    // Use PID in filename initially, update to session ID after attach
-    const pid = process.pid;
-    const portFile = join(STATE_DIR, `hook.${pid}.port`);
-    writeFileSync(portFile, String(currentHookPort));
+    const portFile = join(STATE_DIR, "hook.port");
+    writeFileSync(portFile, String(hookServerPort));
     logger.error(`Hook port written to ${portFile}`);
   } catch (err) {
     logger.error("Hook server failed to start (non-fatal):", err);
