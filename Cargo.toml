@@ -1,0 +1,73 @@
+[package]
+name = "inception-registry"
+version = "0.1.0"
+edition = "2021"
+authors = ["Future Present Labs <hello@futurepresentlabs.com>"]
+description = "Registry and orchestrator for Claude Code sessions"
+license = "AGPL-3.0"
+repository = "https://github.com/FuturePresentLabs/inception"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full", "tracing"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+
+# HTTP/gRPC server
+axum = { version = "0.7", features = ["ws", "macros"] }
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# WebSocket
+futures = "0.3"
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite", "postgres", "migrate", "chrono"] }
+
+# Configuration
+config = "0.14"
+
+# Logging & Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-opentelemetry = "0.22"
+opentelemetry = "0.21"
+opentelemetry-jaeger = "0.20"
+
+# Metrics
+metrics = "0.22"
+metrics-exporter-prometheus = "0.13"
+
+# mTLS / Security
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pemfile = "2.0"
+tokio-rustls = "0.25"
+rcgen = "0.12"
+
+# Authentication
+jsonwebtoken = "9.2"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Utilities
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.8"
+
+# Testing
+tokio-test = "0.4"
+mockall = "0.12"
+async-trait = "0.1.89"
+
+[dev-dependencies]
+reqwest = { version = "0.11", features = ["json"] }
+
+[[bin]]
+name = "inception-registry"
+path = "src/main.rs"

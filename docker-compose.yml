@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  inception-registry:
+    build: .
+    container_name: inception-registry
+    ports:
+      - "8080:8080"      # HTTP/gRPC API
+      - "9090:9090"      # Prometheus metrics
+    environment:
+      - INCEPTION_HOST=0.0.0.0
+      - INCEPTION_PORT=8080
+      - INCEPTION_DATABASE_URL=sqlite:///data/inception.db
+      - INCEPTION_METRICS_ENABLED=true
+      - INCEPTION_METRICS_PORT=9090
+    volumes:
+      - ./data:/data
+      - ./certs:/certs:ro
+    networks:
+      - inception
+    restart: unless-stopped
+
+  # Optional: Postgres for production
+  postgres:
+    image: postgres:16
+    container_name: inception-postgres
+    environment:
+      POSTGRES_USER: inception
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-inception}
+      POSTGRES_DB: inception
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - inception
+    profiles:
+      - production
+
+networks:
+  inception:
+    driver: bridge
+
+volumes:
+  postgres_data:
