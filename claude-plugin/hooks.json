@@ -1,0 +1,154 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:18081/hook/SessionStart -H 'Content-Type: application/json' -d '{\"source\": \"startup\"}' > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:18081/hook/UserPromptSubmit -H 'Content-Type: application/json' -d '{\"prompt\": \"'"'"'$(echo $CLaude_USER_PROMPT | sed \"s/'/'\\\"'\\\"'/g\")'"'"'\"}' > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:18081/hook/PreToolUse -H 'Content-Type: application/json' -d @- > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:18081/hook/PostToolUse -H 'Content-Type: application/json' -d @- > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:18081/hook/PostToolUseFailure -H 'Content-Type: application/json' -d @- > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:18081/hook/PermissionRequest -H 'Content-Type: application/json' -d @- > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:18081/hook/Notification -H 'Content-Type: application/json' -d @- > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:18081/hook/SubagentStart -H 'Content-Type: application/json' -d @- > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:18081/hook/SubagentStop -H 'Content-Type: application/json' -d @- > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:18081/hook/Stop -H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:18081/hook/StopFailure -H 'Content-Type: application/json' -d @- > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:18081/hook/PreCompact -H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:18081/hook/PostCompact -H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:18081/hook/SessionEnd -H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:18081/hook/TaskCompleted -H 'Content-Type: application/json' -d '{}' > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ]
+  }
+}

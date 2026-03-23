@@ -2,11 +2,21 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, } from "@modelcontextprotocol/sdk/types.js";
+import http from "http";
 // Configuration from environment
 let REGISTRY_URL = process.env.INCEPTION_REGISTRY_URL || "http://localhost:8080";
 let TOKEN = process.env.INCEPTION_TOKEN || "";
+const HOOK_PORT = parseInt(process.env.INCEPTION_HOOK_PORT || "18081");
 // State
 let currentSessionId = null;
+let sessionMetrics = {
+    totalToolsUsed: 0,
+    totalFilesEdited: 0,
+    totalCommandsRun: 0,
+    sessionStartTime: new Date(),
+    lastActivityTime: new Date(),
+    activities: [],
+};
 // Tool definitions
 const ATTACH_TOOL = {
     name: "inception_attach",
@@ -59,6 +69,21 @@ const CONFIGURE_TOOL = {
         },
     },
 };
+const METRICS_TOOL = {
+    name: "inception_metrics",
+    description: "Get detailed session metrics and activity history",
+    inputSchema: {
+        type: "object",
+        properties: {
+            format: {
+                type: "string",
+                description: "Output format: summary, detailed, or json",
+                enum: ["summary", "detailed", "json"],
+                default: "summary",
+            },
+        },
+    },
+};
 const UPDATE_STATUS_TOOL = {
     name: "inception_update_status",
     description: "Update session status, agent state, and progress",
@@ -92,7 +117,7 @@ const server = new Server({
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
-        tools: [ATTACH_TOOL, DETACH_TOOL, STATUS_TOOL, CONFIGURE_TOOL, UPDATE_STATUS_TOOL],
+        tools: [ATTACH_TOOL, DETACH_TOOL, STATUS_TOOL, CONFIGURE_TOOL, UPDATE_STATUS_TOOL, METRICS_TOOL],
     };
 });
 // Handle tool calls
@@ -109,6 +134,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             return handleConfigure(args);
         case "inception_update_status":
             return handleUpdateStatus(args);
+        case "inception_metrics":
+            return handleMetrics(args);
         default:
             throw new Error(`Unknown tool: ${name}`);
     }
@@ -376,8 +403,346 @@ async function handleUpdateStatus(args) {
         };
     }
 }
+async function handleMetrics(args) {
+    try {
+        if (!currentSessionId) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: "Not attached to any session. Use inception_attach first.",
+                    },
+                ],
+                isError: true,
+            };
+        }
+        const format = args.format || "summary";
+        const now = new Date();
+        const sessionDuration = Math.floor((now.getTime() - sessionMetrics.sessionStartTime.getTime()) / 1000);
+        const idleTime = Math.floor((now.getTime() - sessionMetrics.lastActivityTime.getTime()) / 1000);
+        if (format === "json") {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            sessionId: currentSessionId,
+                            duration: sessionDuration,
+                            idleTime,
+                            ...sessionMetrics,
+                            sessionStartTime: sessionMetrics.sessionStartTime.toISOString(),
+                            lastActivityTime: sessionMetrics.lastActivityTime.toISOString(),
+                            activities: sessionMetrics.activities.map(a => ({
+                                ...a,
+                                startTime: a.startTime.toISOString(),
+                                endTime: a.endTime?.toISOString(),
+                            })),
+                        }, null, 2),
+                    },
+                ],
+            };
+        }
+        const recentActivities = sessionMetrics.activities.slice(-10).reverse();
+        const activityList = recentActivities.map(a => {
+            const duration = a.endTime
+                ? ` (${Math.floor((a.endTime.getTime() - a.startTime.getTime()) / 1000)}s)`
+                : "";
+            const status = a.success ? "✓" : "✗";
+            return `  ${status} ${a.toolName}${duration}`;
+        }).join("\n");
+        const summary = `Session Metrics for ${currentSessionId}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 Overview
+  Duration: ${formatDuration(sessionDuration)}
+  Idle: ${formatDuration(idleTime)}
+
+🔧 Activity
+  Total Tools: ${sessionMetrics.totalToolsUsed}
+  Files Edited: ${sessionMetrics.totalFilesEdited}
+  Commands Run: ${sessionMetrics.totalCommandsRun}
+
+📝 Recent Activity (last 10)
+${activityList || "  No activity yet"}
+
+${sessionMetrics.currentActivity
+            ? `⏳ Current: ${sessionMetrics.currentActivity.toolName} (started ${formatDuration(Math.floor((now.getTime() - sessionMetrics.currentActivity.startTime.getTime()) / 1000))} ago)`
+            : "⏳ Current: Idle"}
+`;
+        if (format === "detailed") {
+            const detailedActivities = sessionMetrics.activities.slice(-20).reverse().map((a, i) => {
+                const duration = a.endTime
+                    ? `${Math.floor((a.endTime.getTime() - a.startTime.getTime()) / 1000)}s`
+                    : "ongoing";
+                const input = JSON.stringify(a.toolInput).substring(0, 100);
+                return `
+[${sessionMetrics.activities.length - i}] ${a.toolName} (${duration})
+    Input: ${input}${input.length >= 100 ? "..." : ""}
+    Status: ${a.success ? "success" : "failed"}${a.error ? `\n    Error: ${a.error}` : ""}`;
+            }).join("\n");
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: summary + "\n📋 Detailed Activity (last 20)" + detailedActivities,
+                    },
+                ],
+            };
+        }
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: summary,
+                },
+            ],
+        };
+    }
+    catch (error) {
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: `Error getting metrics: ${error instanceof Error ? error.message : String(error)}`,
+                },
+            ],
+            isError: true,
+        };
+    }
+}
+function formatDuration(seconds) {
+    if (seconds < 60)
+        return `${seconds}s`;
+    if (seconds < 3600)
+        return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+}
+// Hook handlers
+async function handleHook(event, data) {
+    if (!currentSessionId)
+        return;
+    const now = new Date();
+    sessionMetrics.lastActivityTime = now;
+    switch (event) {
+        case "SessionStart":
+            sessionMetrics.sessionStartTime = now;
+            sessionMetrics.activities = [];
+            await updateRegistryStatus({
+                status: "busy",
+                agent_state: "thinking",
+                current_task: "Session started",
+            });
+            break;
+        case "UserPromptSubmit":
+            await updateRegistryStatus({
+                agent_state: "thinking",
+                current_task: data.prompt?.substring(0, 100) || "Processing user input",
+            });
+            break;
+        case "PreToolUse":
+            sessionMetrics.totalToolsUsed++;
+            if (data.tool_name === "Edit" || data.tool_name === "Write") {
+                sessionMetrics.totalFilesEdited++;
+            }
+            if (data.tool_name === "Bash") {
+                sessionMetrics.totalCommandsRun++;
+            }
+            const activity = {
+                toolName: data.tool_name,
+                toolInput: data.tool_input,
+                startTime: now,
+                success: true,
+            };
+            sessionMetrics.currentActivity = activity;
+            sessionMetrics.activities.push(activity);
+            // Keep only last 50 activities
+            if (sessionMetrics.activities.length > 50) {
+                sessionMetrics.activities = sessionMetrics.activities.slice(-50);
+            }
+            await updateRegistryStatus({
+                agent_state: "executing",
+                current_task: `${data.tool_name}: ${getActivityDescription(data)}`,
+            });
+            break;
+        case "PostToolUse":
+            if (sessionMetrics.currentActivity) {
+                sessionMetrics.currentActivity.endTime = now;
+                sessionMetrics.currentActivity.success = true;
+            }
+            await updateRegistryStatus({
+                agent_state: "thinking",
+            });
+            break;
+        case "PostToolUseFailure":
+            if (sessionMetrics.currentActivity) {
+                sessionMetrics.currentActivity.endTime = now;
+                sessionMetrics.currentActivity.success = false;
+                sessionMetrics.currentActivity.error = data.error;
+            }
+            await updateRegistryStatus({
+                agent_state: "error",
+                current_task: `Error in ${data.tool_name}: ${data.error?.substring(0, 100)}`,
+            });
+            break;
+        case "PermissionRequest":
+            await updateRegistryStatus({
+                agent_state: "waiting_for_user",
+                current_task: `Waiting for permission: ${data.tool_name}`,
+            });
+            break;
+        case "Notification":
+            if (data.notification_type === "idle_prompt") {
+                await updateRegistryStatus({
+                    agent_state: "waiting_for_user",
+                    current_task: "Waiting for user input",
+                });
+            }
+            break;
+        case "SubagentStart":
+            await updateRegistryStatus({
+                agent_state: "executing",
+                current_task: `Subagent: ${data.agent_type}`,
+            });
+            break;
+        case "SubagentStop":
+            await updateRegistryStatus({
+                agent_state: "thinking",
+            });
+            break;
+        case "Stop":
+            await updateRegistryStatus({
+                agent_state: "idle",
+                current_task: "Ready for next task",
+            });
+            break;
+        case "StopFailure":
+            await updateRegistryStatus({
+                agent_state: "error",
+                current_task: `Error: ${data.error_type}`,
+            });
+            break;
+        case "PreCompact":
+            await updateRegistryStatus({
+                agent_state: "thinking",
+                current_task: "Compacting context...",
+            });
+            break;
+        case "PostCompact":
+            await updateRegistryStatus({
+                agent_state: "idle",
+            });
+            break;
+        case "SessionEnd":
+            await updateRegistryStatus({
+                status: "idle",
+                agent_state: "idle",
+                current_task: "Session ended",
+            });
+            break;
+        case "TaskCompleted":
+            await updateRegistryStatus({
+                agent_state: "idle",
+                current_task: "Task completed",
+            });
+            break;
+    }
+}
+function getActivityDescription(data) {
+    const toolName = data.tool_name;
+    const input = data.tool_input || {};
+    switch (toolName) {
+        case "Bash":
+            return input.command?.substring(0, 50) || "Running command";
+        case "Edit":
+        case "Write":
+            return input.file_path || "Editing file";
+        case "Read":
+            return `Reading ${input.file_path || "file"}`;
+        case "Glob":
+            return `Searching ${input.pattern || "files"}`;
+        case "Grep":
+            return `Finding "${input.pattern?.substring(0, 30) || "pattern"}"`;
+        case "mcp__inception__inception_attach":
+            return "Attaching to Inception session";
+        case "mcp__inception__inception_detach":
+            return "Detaching from Inception session";
+        default:
+            if (toolName.startsWith("mcp__")) {
+                return `MCP: ${toolName.split("__").pop()}`;
+            }
+            return toolName;
+    }
+}
+async function updateRegistryStatus(updates) {
+    if (!currentSessionId)
+        return;
+    try {
+        const statusUpdate = {};
+        if (updates.status)
+            statusUpdate.status = updates.status;
+        if (updates.agent_state)
+            statusUpdate.agent_state = updates.agent_state;
+        if (updates.progress !== undefined)
+            statusUpdate.progress = updates.progress;
+        await fetch(`${REGISTRY_URL}/v1/sessions/${currentSessionId}/status`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${TOKEN}`,
+            },
+            body: JSON.stringify(statusUpdate),
+        });
+        if (updates.current_task) {
+            await fetch(`${REGISTRY_URL}/v1/sessions/${currentSessionId}`, {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${TOKEN}`,
+                },
+                body: JSON.stringify({ current_task: updates.current_task }),
+            });
+        }
+    }
+    catch (error) {
+        console.error("Failed to update registry status:", error);
+    }
+}
+// HTTP hook server
+function startHookServer() {
+    const server = http.createServer(async (req, res) => {
+        if (req.method !== "POST") {
+            res.writeHead(405);
+            res.end("Method not allowed");
+            return;
+        }
+        let body = "";
+        req.on("data", (chunk) => {
+            body += chunk.toString();
+        });
+        req.on("end", async () => {
+            try {
+                const data = JSON.parse(body);
+                const event = req.url?.replace("/hook/", "") || "unknown";
+                await handleHook(event, data);
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ success: true }));
+            }
+            catch (error) {
+                console.error("Hook error:", error);
+                res.writeHead(500);
+                res.end(JSON.stringify({ error: String(error) }));
+            }
+        });
+    });
+    server.listen(HOOK_PORT, () => {
+        console.error(`Inception hook server listening on port ${HOOK_PORT}`);
+    });
+}
 // Start server
 async function main() {
+    // Start HTTP hook server
+    startHookServer();
+    // Start MCP server
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error("Inception MCP server running on stdio");
