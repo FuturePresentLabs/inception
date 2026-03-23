@@ -1279,9 +1279,24 @@ async function main() {
     logger.error(`Hook server ready on port ${port}`);
     
     // Write port to file so Claude can configure hooks
-    const portFile = join(STATE_DIR, "hook.port");
+    // Use PID in filename to support multiple Claude instances
+    const pid = process.pid;
+    const portFile = join(STATE_DIR, `hook.${pid}.port`);
     writeFileSync(portFile, String(port));
     logger.error(`Hook port written to ${portFile}`);
+    
+    // Also write to a symlink for easy access
+    const latestPortFile = join(STATE_DIR, "hook.port");
+    try {
+      // Remove old symlink if exists
+      const { unlinkSync } = await import("fs");
+      try { unlinkSync(latestPortFile); } catch {}
+      // Create new symlink
+      const { symlinkSync } = await import("fs");
+      symlinkSync(portFile, latestPortFile);
+    } catch {
+      // Symlink might fail on Windows, ignore
+    }
   } catch (err) {
     logger.error("Hook server failed to start (non-fatal):", err);
   }
