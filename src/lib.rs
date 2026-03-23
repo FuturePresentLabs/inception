@@ -24,6 +24,7 @@ pub mod test_helpers {
         let state = Arc::new(AppState {
             store: Arc::new(store),
             ws_manager,
+            config: crate::config::Config::default(),
         });
         create_router(state)
     }

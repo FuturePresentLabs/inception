@@ -19,6 +19,7 @@ use crate::{
 pub struct AppState {
     pub store: Arc<dyn SessionStore>,
     pub ws_manager: Arc<RwLock<WebSocketManager>>,
+    pub config: crate::config::Config,
 }
 
 /// Create a new router
@@ -43,10 +44,24 @@ async fn health_check() -> StatusCode {
 use crate::models::{CreateTokenRequest, CreateTokenResponse};
 use uuid::Uuid;
 
-/// Create a new API token
+/// Create a new API token (requires admin token)
 async fn create_token(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<CreateTokenRequest>,
 ) -> Result<Json<CreateTokenResponse>, StatusCode> {
+    // Check admin token if configured
+    if let Some(ref admin_token) = state.config.security.admin_token {
+        let provided_token = headers
+            .get("authorization")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|h| h.strip_prefix("Bearer "));
+        
+        if provided_token != Some(admin_token) {
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+    }
+    
     // Generate token
     let token = format!("inc_{}", Uuid::new_v4().to_string().replace("-", ""));
     
@@ -406,6 +421,7 @@ mod tests {
         let state = Arc::new(AppState {
             store: Arc::new(store),
             ws_manager,
+            config: crate::config::Config::default(),
         });
         create_router(state)
     }

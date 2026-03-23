@@ -40,6 +40,7 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(api::AppState {
         store: Arc::new(store),
         ws_manager,
+        config: config.clone(),
     });
 
     // Create router

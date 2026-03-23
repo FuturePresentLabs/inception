@@ -113,6 +113,21 @@ impl Default for TracingConfig {
     }
 }
 
+/// Security configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SecurityConfig {
+    #[serde(default)]
+    pub admin_token: Option<String>,
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            admin_token: None,
+        }
+    }
+}
+
 /// Application configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
@@ -124,6 +139,8 @@ pub struct Config {
     pub metrics: MetricsConfig,
     #[serde(default)]
     pub tracing: TracingConfig,
+    #[serde(default)]
+    pub security: SecurityConfig,
 }
 
 impl Default for Config {
@@ -133,6 +150,7 @@ impl Default for Config {
             database: DatabaseConfig::default(),
             metrics: MetricsConfig::default(),
             tracing: TracingConfig::default(),
+            security: SecurityConfig::default(),
         }
     }
 }
@@ -169,6 +187,11 @@ impl Config {
         }
         if let Ok(port) = std::env::var("INCEPTION_METRICS_PORT") {
             config.metrics.port = port.parse()?;
+        }
+
+        // Security config
+        if let Ok(token) = std::env::var("INCEPTION_ADMIN_TOKEN") {
+            config.security.admin_token = Some(token);
         }
 
         Ok(config)
