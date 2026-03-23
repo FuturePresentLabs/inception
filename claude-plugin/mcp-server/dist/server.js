@@ -258,11 +258,13 @@ async function handleAttach(args) {
         currentSessionId = sessionId || null;
         // Connect WebSocket for real-time messages
         connectWebSocket(sessionId);
+        // Construct WebSocket URL for display
+        const wsUrl = `${REGISTRY_URL.replace("http://", "ws://").replace("https://", "wss://")}/v1/sessions/${sessionId}/ws`;
         return {
             content: [
                 {
                     type: "text",
-                    text: `Attached to session: ${sessionId}\nStatus: ${session.status}\nWebSocket: ${session.websocket_url}`,
+                    text: `Attached to session: ${sessionId}\nStatus: ${session.status}\nWebSocket: ${wsUrl}`,
                 },
             ],
         };
