@@ -936,8 +936,9 @@ function connectWebSocket(sessionId) {
         try {
             const msg = JSON.parse(data.toString());
             console.error("Received message from registry:", msg);
-            // Route based on message type
-            switch (msg.type) {
+            // Route based on message type (default to "message" if not specified)
+            const msgType = msg.type || "message";
+            switch (msgType) {
                 case "permission_request":
                     // Forward permission request to Claude
                     console.error("Forwarding permission request to Claude...");
