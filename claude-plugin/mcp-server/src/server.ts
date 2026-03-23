@@ -131,6 +131,25 @@ const CONFIGURE_TOOL: Tool = {
   },
 };
 
+const SEND_RESPONSE_TOOL: Tool = {
+  name: "inception_send_response",
+  description: "Send a response message back to the registry (for replies to incoming messages)",
+  inputSchema: {
+    type: "object",
+    properties: {
+      content: {
+        type: "string",
+        description: "Response content to send",
+      },
+      in_reply_to: {
+        type: "string",
+        description: "ID of the message being replied to (optional)",
+      },
+    },
+    required: ["content"],
+  },
+};
+
 const METRICS_TOOL: Tool = {
   name: "inception_metrics",
   description: "Get detailed session metrics and activity history",
@@ -182,7 +201,7 @@ const server = new Server({
 // List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
-    tools: [ATTACH_TOOL, DETACH_TOOL, STATUS_TOOL, CONFIGURE_TOOL, UPDATE_STATUS_TOOL, METRICS_TOOL],
+    tools: [ATTACH_TOOL, DETACH_TOOL, STATUS_TOOL, CONFIGURE_TOOL, UPDATE_STATUS_TOOL, METRICS_TOOL, SEND_RESPONSE_TOOL],
   };
 });
 
@@ -208,6 +227,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     case "inception_metrics":
       return handleMetrics(args as { format?: string });
+
+    case "inception_send_response":
+      return handleSendResponse(args as { content: string; in_reply_to?: string });
 
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -640,6 +662,75 @@ function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+}
+
+async function handleSendResponse(args: { content: string; in_reply_to?: string }) {
+  try {
+    if (!currentSessionId) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Not attached to any session. Use inception_attach first.",
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    const response = {
+      id: `resp-${Date.now()}`,
+      content: args.content,
+      in_reply_to: args.in_reply_to,
+      timestamp: new Date().toISOString(),
+      source: "claude_code",
+    };
+
+    // Try WebSocket first
+    if (sendMessageViaWebSocket(response)) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Response sent via WebSocket`,
+          },
+        ],
+      };
+    }
+
+    // Fallback to HTTP API
+    const httpResponse = await fetch(`${REGISTRY_URL}/v1/sessions/${currentSessionId}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify(response),
+    });
+
+    if (!httpResponse.ok) {
+      throw new Error(`Failed to send response: ${httpResponse.statusText}`);
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Response sent via HTTP API`,
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Error sending response: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      ],
+      isError: true,
+    };
+  }
 }
 
 // Hook handlers
