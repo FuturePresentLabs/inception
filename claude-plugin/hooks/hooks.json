@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -X POST http://localhost:18081/hook/UserPromptSubmit -H 'Content-Type: application/json' -d '{\"prompt\": \"'"'"'$(echo $CLaude_USER_PROMPT | sed \"s/'/'\\\"'\\\"'/g\")'"'"'\"}' > /dev/null 2>&1 || true"
+            "command": "curl -s -X POST http://localhost:18081/hook/UserPromptSubmit -H 'Content-Type: application/json' -d @- > /dev/null 2>&1 || true"
           }
         ]
       }

@@ -1,10 +1,8 @@
 {
   "inception": {
     "command": "node",
-    "args": ["./mcp-server/dist/server.js"],
-    "env": {
-      "INCEPTION_REGISTRY_URL": "http://localhost:18080",
-      "INCEPTION_HOOK_PORT": "18081"
-    }
+    "args": [
+      "${CLAUDE_PLUGIN_ROOT}/mcp-server/dist/server.js"
+    ]
   }
 }
