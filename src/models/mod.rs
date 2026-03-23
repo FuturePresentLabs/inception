@@ -88,6 +88,8 @@ pub struct Session {
     pub agent_state: Option<AgentState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webhook_url: Option<String>,
 }
 
 impl Session {
@@ -135,6 +137,8 @@ pub struct CreateSessionRequest {
     pub capabilities: Vec<String>,
     #[serde(default)]
     pub metadata: HashMap<String, String>,
+    #[serde(default)]
+    pub webhook_url: Option<String>,
 }
 
 /// Response after creating a session

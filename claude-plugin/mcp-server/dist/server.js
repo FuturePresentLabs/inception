@@ -8,6 +8,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 import http from "http";
 import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
 import { homedir } from "os";
@@ -222,6 +223,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 });
 // Permission relay: Handle permission requests from Claude Code
+const PermissionRequestSchema = z.object({
+    method: z.literal("notifications/claude/channel/permission_request"),
+    params: z.object({
+        request_id: z.string(),
+        tool_name: z.string(),
+        description: z.string(),
+        input_preview: z.string(),
+    }),
+});
+// @ts-ignore - SDK type compatibility
+server.setNotificationHandler(PermissionRequestSchema, async ({ params }) => {
+    console.error(`Permission request ${params.request_id}: ${params.tool_name}`);
+    // Forward to registry via WebSocket
+    const msg = {
+        type: "permission_request",
+        request_id: params.request_id,
+        tool_name: params.tool_name,
+        description: params.description,
+        input_preview: params.input_preview,
+        timestamp: new Date().toISOString(),
+    };
+    if (sendMessageViaWebSocket(msg)) {
+        console.error("Permission request forwarded to registry");
+    }
+    else {
+        console.error("Permission request queued (WebSocket offline)");
+    }
+});
 async function handleAttach(args) {
     try {
         let sessionId = args.session_id;
