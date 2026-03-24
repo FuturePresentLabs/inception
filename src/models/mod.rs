@@ -90,6 +90,9 @@ pub struct Session {
     pub progress: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook_url: Option<String>,
+    /// Generic routing key for reply routing (e.g., openclaw session key, discord channel, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routing_key: Option<String>,
 }
 
 impl Session {
@@ -109,6 +112,7 @@ impl Session {
             agent_state: Some(AgentState::Idle),
             progress: None,
             webhook_url: None,
+            routing_key: None,
         }
     }
 

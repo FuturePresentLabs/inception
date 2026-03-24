@@ -347,8 +347,14 @@ async fn handle_agent_socket(
                         // Store the message
                         if let Ok(message) = serde_json::from_str::<crate::models::Message>(&text) {
                             state.message_store.add_message(&session_id, message.clone()).await;
+                            // Get session for routing_key
+                            let routing_key = if let Ok(Some(session)) = state.store.get(&session_id).await {
+                                session.routing_key.as_deref()
+                            } else {
+                                None
+                            };
                             // Trigger webhook if configured
-                            state.webhook.send_message(&session_id, &message).await;
+                            state.webhook.send_message(&session_id, routing_key, &message).await;
                         }
                     }
                     Ok(WsMessage::Close(_)) | Err(_) => {

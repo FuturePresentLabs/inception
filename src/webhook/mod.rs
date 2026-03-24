@@ -20,7 +20,7 @@ impl WebhookClient {
     }
 
     /// Send a message notification to the webhook (OpenClaw /hooks/agent format)
-    pub async fn send_message(&self, session_id: &SessionId, message: &Message) {
+    pub async fn send_message(&self, session_id: &SessionId, routing_key: Option<&str>, message: &Message) {
         if !self.enabled {
             return;
         }
@@ -29,12 +29,16 @@ impl WebhookClient {
             return;
         };
 
+        // Use routing_key if available, otherwise default to inception:session_id
+        let session_key = routing_key.map(|s| s.to_string())
+            .unwrap_or_else(|| format!("inception:{}", session_id.0));
+
         // OpenClaw /hooks/agent format
         let payload = serde_json::json!({
             "message": message.content,
             "name": "Inception",
             "agentId": "inception",
-            "sessionKey": format!("inception:{}", session_id.0),
+            "sessionKey": session_key,
             "wakeMode": "now",
             "deliver": true,
             "channel": "last",

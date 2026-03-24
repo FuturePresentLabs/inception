@@ -248,6 +248,7 @@ impl SessionRow {
             agent_state: Some(crate::models::AgentState::Idle),
             progress: None,
             webhook_url: None,
+            routing_key: None,
         }
     }
 }
