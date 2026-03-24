@@ -3,7 +3,7 @@ use inception_registry::{api, config, session, webhook::WebhookClient, websocket
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use config::Config;
-use session::SqliteSessionStore;
+use session::{SqliteSessionStore, SqliteMessageStore};
 use tracing::{info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -48,8 +48,8 @@ async fn main() -> anyhow::Result<()> {
         info!("Webhook client enabled: {}", config.webhook.url.as_ref().unwrap());
     }
 
-    // Initialize message store
-    let message_store = Arc::new(api::MessageStore::new());
+    // Initialize message store (persistent SQLite)
+    let message_store = SqliteMessageStore::new(&config.database.url).await?;
     info!("Message store initialized");
 
     // Create app state

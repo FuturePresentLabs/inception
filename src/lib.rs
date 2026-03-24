@@ -24,7 +24,8 @@ pub mod test_helpers {
         let ws_manager = Arc::new(RwLock::new(WebSocketManager::new()));
         let config = crate::config::Config::default();
         let webhook = crate::webhook::WebhookClient::new(&config);
-        let message_store = Arc::new(crate::api::MessageStore::new());
+        #[allow(deprecated)]
+        let message_store = Arc::new(crate::api::InMemoryMessageStore::new());
         let state = Arc::new(AppState {
             store: Arc::new(store),
             ws_manager,

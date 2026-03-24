@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 
 use crate::{
     models::{CreateSessionRequest, CreateSessionResponse, Message, Session, SessionId, SessionStatus},
-    session::SessionStore,
+    session::{SessionStore, MessageStore},
     webhook::WebhookClient,
     websocket::{WebSocketManager, AgentConnection},
 };
@@ -22,7 +22,7 @@ pub struct AppState {
     pub store: Arc<dyn SessionStore>,
     pub ws_manager: Arc<RwLock<WebSocketManager>>,
     pub webhook: WebhookClient,
-    pub message_store: Arc<MessageStore>,
+    pub message_store: Arc<dyn MessageStore>,
     pub config: crate::config::Config,
 }
 
@@ -195,21 +195,23 @@ async fn get_session(
     Ok(Json(session))
 }
 
-/// In-memory message store for session messages
+/// In-memory message store for session messages (deprecated, use SqliteMessageStore)
 use std::collections::VecDeque;
 
-/// Message store - keeps last 100 messages per session
-pub struct MessageStore {
+/// In-memory message store - keeps last 100 messages per session
+#[deprecated(since = "0.2.0", note = "Use SqliteMessageStore for persistence")]
+pub struct InMemoryMessageStore {
     messages: RwLock<HashMap<SessionId, VecDeque<Message>>>,
 }
 
-impl MessageStore {
+#[allow(deprecated)]
+impl InMemoryMessageStore {
     pub fn new() -> Self {
         Self {
             messages: RwLock::new(HashMap::new()),
         }
     }
-    
+
     pub async fn add_message(&self, session_id: &SessionId, message: Message) {
         let mut messages = self.messages.write().await;
         let queue = messages.entry(session_id.clone()).or_insert_with(VecDeque::new);
@@ -219,7 +221,7 @@ impl MessageStore {
             queue.pop_front();
         }
     }
-    
+
     pub async fn get_messages(&self, session_id: &SessionId) -> Vec<Message> {
         let messages = self.messages.read().await;
         messages.get(session_id)
@@ -634,7 +636,8 @@ mod tests {
         let ws_manager = Arc::new(RwLock::new(crate::websocket::WebSocketManager::new()));
         let config = crate::config::Config::default();
         let webhook = crate::webhook::WebhookClient::new(&config);
-        let message_store = Arc::new(MessageStore::new());
+        #[allow(deprecated)]
+        let message_store = Arc::new(InMemoryMessageStore::new());
         let state = Arc::new(AppState {
             store: Arc::new(store),
             ws_manager,
