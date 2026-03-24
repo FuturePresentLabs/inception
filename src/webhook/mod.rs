@@ -19,7 +19,7 @@ impl WebhookClient {
         }
     }
 
-    /// Send a message notification to the webhook
+    /// Send a message notification to the webhook (OpenClaw /hooks/agent format)
     pub async fn send_message(&self, session_id: &SessionId, message: &Message) {
         if !self.enabled {
             return;
@@ -29,14 +29,21 @@ impl WebhookClient {
             return;
         };
 
+        // OpenClaw /hooks/agent format
         let payload = serde_json::json!({
-            "event": "message",
-            "session_id": session_id.0,
-            "message": {
-                "id": message.id,
-                "content": message.content,
+            "message": message.content,
+            "name": "Inception",
+            "agentId": "inception",
+            "sessionKey": format!("inception:{}", session_id.0),
+            "wakeMode": "now",
+            "deliver": true,
+            "channel": "last",
+            "meta": {
+                "session_id": session_id.0,
+                "message_id": message.id,
                 "timestamp": message.timestamp,
-            },
+                "source": "claude_code"
+            }
         });
 
         let mut request = self.client.post(url).json(&payload);
@@ -64,7 +71,7 @@ impl WebhookClient {
         }
     }
 
-    /// Send a permission request notification
+    /// Send a permission request notification (OpenClaw /hooks/agent format)
     pub async fn send_permission_request(
         &self,
         session_id: &SessionId,
@@ -80,14 +87,22 @@ impl WebhookClient {
             return;
         };
 
+        // OpenClaw /hooks/agent format for permission requests
         let payload = serde_json::json!({
-            "event": "permission_request",
-            "session_id": session_id.0,
-            "request": {
+            "message": format!("Claude needs permission to use {}: {}", tool_name, description),
+            "name": "Inception-Permission",
+            "agentId": "inception",
+            "sessionKey": format!("inception:{}", session_id.0),
+            "wakeMode": "now",
+            "deliver": true,
+            "channel": "last",
+            "meta": {
+                "session_id": session_id.0,
                 "request_id": request_id,
                 "tool_name": tool_name,
                 "description": description,
-            },
+                "event": "permission_request"
+            }
         });
 
         let mut request = self.client.post(url).json(&payload);
