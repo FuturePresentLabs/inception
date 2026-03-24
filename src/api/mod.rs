@@ -22,6 +22,7 @@ pub struct AppState {
     pub store: Arc<dyn SessionStore>,
     pub ws_manager: Arc<RwLock<WebSocketManager>>,
     pub webhook: WebhookClient,
+    pub message_store: Arc<MessageStore>,
     pub config: crate::config::Config,
 }
 
@@ -32,7 +33,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/v1/tokens", post(create_token))
         .route("/v1/sessions", post(create_session).get(list_sessions))
         .route("/v1/sessions/:id", get(get_session).patch(update_session).delete(delete_session))
-        .route("/v1/sessions/:id/messages", post(send_message))
+        .route("/v1/sessions/:id/messages", post(send_message).get(get_messages))
         .route("/v1/sessions/:id/status", post(update_status))
         .route("/v1/sessions/:id/heartbeat", post(heartbeat))
         .route("/v1/sessions/:id/permissions", post(create_permission_request))
@@ -194,6 +195,39 @@ async fn get_session(
     Ok(Json(session))
 }
 
+/// In-memory message store for session messages
+use std::collections::VecDeque;
+
+/// Message store - keeps last 100 messages per session
+pub struct MessageStore {
+    messages: RwLock<HashMap<SessionId, VecDeque<Message>>>,
+}
+
+impl MessageStore {
+    pub fn new() -> Self {
+        Self {
+            messages: RwLock::new(HashMap::new()),
+        }
+    }
+    
+    pub async fn add_message(&self, session_id: &SessionId, message: Message) {
+        let mut messages = self.messages.write().await;
+        let queue = messages.entry(session_id.clone()).or_insert_with(VecDeque::new);
+        queue.push_back(message);
+        // Keep only last 100 messages
+        while queue.len() > 100 {
+            queue.pop_front();
+        }
+    }
+    
+    pub async fn get_messages(&self, session_id: &SessionId) -> Vec<Message> {
+        let messages = self.messages.read().await;
+        messages.get(session_id)
+            .map(|q| q.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+}
+
 /// Send a message to a session
 async fn send_message(
     State(state): State<Arc<AppState>>,
@@ -201,6 +235,9 @@ async fn send_message(
     Json(msg): Json<Message>,
 ) -> Result<StatusCode, StatusCode> {
     let session_id = SessionId(id);
+    
+    // Store the message
+    state.message_store.add_message(&session_id, msg.clone()).await;
     
     // Try to send via WebSocket if agent is connected
     let ws_manager = state.ws_manager.read().await;
@@ -215,9 +252,30 @@ async fn send_message(
     
     // Queue for later delivery if agent is offline
     tracing::info!("Message queued for offline session {}", session_id.0);
-    // TODO: Implement message queue
     
     Ok(StatusCode::ACCEPTED)
+}
+
+/// Get messages for a session
+async fn get_messages(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<Message>>, StatusCode> {
+    let session_id = SessionId(id);
+    
+    // Verify session exists
+    let session = state
+        .store
+        .get(&session_id)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    
+    if session.is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    
+    let messages = state.message_store.get_messages(&session_id).await;
+    Ok(Json(messages))
 }
 
 /// WebSocket handler for agent connections
@@ -286,8 +344,10 @@ async fn handle_agent_socket(
                 match msg {
                     Ok(WsMessage::Text(text)) => {
                         // Process incoming message from agent
-                        // Trigger webhook if configured
+                        // Store the message
                         if let Ok(message) = serde_json::from_str::<crate::models::Message>(&text) {
+                            state.message_store.add_message(&session_id, message.clone()).await;
+                            // Trigger webhook if configured
                             state.webhook.send_message(&session_id, &message).await;
                         }
                     }
@@ -560,10 +620,12 @@ mod tests {
         let ws_manager = Arc::new(RwLock::new(crate::websocket::WebSocketManager::new()));
         let config = crate::config::Config::default();
         let webhook = crate::webhook::WebhookClient::new(&config);
+        let message_store = Arc::new(MessageStore::new());
         let state = Arc::new(AppState {
             store: Arc::new(store),
             ws_manager,
             webhook,
+            message_store,
             config,
         });
         create_router(state)

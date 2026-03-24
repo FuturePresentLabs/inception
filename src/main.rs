@@ -48,11 +48,16 @@ async fn main() -> anyhow::Result<()> {
         info!("Webhook client enabled: {}", config.webhook.url.as_ref().unwrap());
     }
 
+    // Initialize message store
+    let message_store = Arc::new(api::MessageStore::new());
+    info!("Message store initialized");
+
     // Create app state
     let state = Arc::new(api::AppState {
         store: Arc::new(store),
         ws_manager,
         webhook,
+        message_store,
         config: config.clone(),
     });
 
