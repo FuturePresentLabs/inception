@@ -771,10 +771,15 @@ async function handleVerdict(args: { request_id: string; decision: "allow" | "de
     }
 
     const verdict = {
-      type: "permission_verdict",
-      request_id: args.request_id,
-      behavior: args.decision,
+      id: `verdict-${Date.now()}`,
+      content: `Permission ${args.request_id}: ${args.decision}`,
       timestamp: new Date().toISOString(),
+      source: "claude_code",
+      meta: {
+        type: "permission_verdict",
+        request_id: args.request_id,
+        behavior: args.decision,
+      },
     };
 
     // Send via WebSocket
@@ -826,12 +831,11 @@ async function handleReply(args: { content: string; reply_to?: string }) {
     }
 
     const response = {
-      type: "message",
       id: `resp-${Date.now()}`,
       content: args.content,
-      in_reply_to: args.reply_to,
       timestamp: new Date().toISOString(),
       source: "claude_code",
+      in_reply_to: args.reply_to || null,
     };
 
     // Send via WebSocket

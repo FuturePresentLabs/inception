@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Inception channel for Claude Code - distributed agent session management.
  *
@@ -10,43 +10,17 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema, } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import http from "http";
-import { readFileSync, writeFileSync, mkdirSync, chmodSync, appendFileSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import WebSocket from "ws";
 const STATE_DIR = join(homedir(), ".claude", "channels", "inception");
 const ENV_FILE = join(STATE_DIR, ".env");
-const LOG_FILE = process.env.INCEPTION_LOG_FILE || "/tmp/inception-mcp.log";
-// Simple file logger - writes to file instead of stderr (which is used for MCP communication)
-// NEVER writes to stdout/stderr as that breaks MCP stdio protocol
+// stderr is safe for diagnostics — MCP stdio uses stdout only.
 const logger = {
-    error: (...args) => {
-        try {
-            const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-            appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [ERROR] ${msg}\n`);
-        }
-        catch {
-            // Silently drop logs if file logging fails - NEVER write to stderr
-        }
-    },
-    info: (...args) => {
-        try {
-            const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-            appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [INFO] ${msg}\n`);
-        }
-        catch {
-            // Silently drop logs if file logging fails
-        }
-    },
-    debug: (...args) => {
-        try {
-            const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-            appendFileSync(LOG_FILE, `[${new Date().toISOString()}] [DEBUG] ${msg}\n`);
-        }
-        catch {
-            // Silently drop debug logs if file logging fails
-        }
-    }
+    error: (...args) => process.stderr.write(`inception channel: ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}\n`),
+    info: (...args) => process.stderr.write(`inception channel: ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}\n`),
+    debug: (...args) => process.stderr.write(`inception channel: ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}\n`),
 };
 // Load ~/.claude/channels/inception/.env into process.env. Real env wins.
 // Plugin-spawned servers don't get an env block — this is where config lives.
@@ -60,6 +34,14 @@ try {
     }
 }
 catch { }
+// Last-resort safety net — without these the process dies silently on any
+// unhandled promise rejection. With them it logs and keeps serving tools.
+process.on('unhandledRejection', err => {
+    process.stderr.write(`inception channel: unhandled rejection: ${err}\n`);
+});
+process.on('uncaughtException', err => {
+    process.stderr.write(`inception channel: uncaught exception: ${err}\n`);
+});
 // Configuration from environment (or defaults)
 let REGISTRY_URL = process.env.INCEPTION_REGISTRY_URL || "http://localhost:8080";
 let TOKEN = process.env.INCEPTION_TOKEN || "";
@@ -692,10 +674,15 @@ async function handleVerdict(args) {
             };
         }
         const verdict = {
-            type: "permission_verdict",
-            request_id: args.request_id,
-            behavior: args.decision,
+            id: `verdict-${Date.now()}`,
+            content: `Permission ${args.request_id}: ${args.decision}`,
             timestamp: new Date().toISOString(),
+            source: "claude_code",
+            meta: {
+                type: "permission_verdict",
+                request_id: args.request_id,
+                behavior: args.decision,
+            },
         };
         // Send via WebSocket
         if (sendMessageViaWebSocket(verdict)) {
@@ -744,12 +731,11 @@ async function handleReply(args) {
             };
         }
         const response = {
-            type: "message",
             id: `resp-${Date.now()}`,
             content: args.content,
-            in_reply_to: args.reply_to,
             timestamp: new Date().toISOString(),
             source: "claude_code",
+            in_reply_to: args.reply_to || null,
         };
         // Send via WebSocket
         if (sendMessageViaWebSocket(response)) {
@@ -1131,11 +1117,10 @@ function startHookServer() {
         });
         server.on("error", (err) => {
             if (err.code === "EADDRINUSE") {
-                // Port already in use - another MCP instance is running the hook server
+                // Port already in use - another MCP instance owns the hook server
                 logger.error("Hook server port in use, assuming another instance is running it");
-                // Try to connect to existing server to verify
-                // For now, just resolve with the configured port
-                resolve(hookServerPort);
+                hookServerPort = HOOK_PORT;
+                resolve(HOOK_PORT);
             }
             else {
                 logger.error("Hook server error:", err);

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Inception channel for Claude Code - distributed agent session management.
  *
