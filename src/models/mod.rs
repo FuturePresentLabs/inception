@@ -108,6 +108,7 @@ impl Session {
             current_task: None,
             agent_state: Some(AgentState::Idle),
             progress: None,
+            webhook_url: None,
         }
     }
 

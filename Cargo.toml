@@ -2,6 +2,14 @@
 name = "inception-registry"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.70"
+authors = ["Future Present Labs <hello@futurepresentlabs.com>"]
+description = "Registry and orchestrator for Claude Code sessions"
+license = "AGPL-3.0"
+repository = "https://github.com/FuturePresentLabs/inception"
+
+[workspace]
+members = ["."]
 resolver = "2"
 authors = ["Future Present Labs <hello@futurepresentlabs.com>"]
 description = "Registry and orchestrator for Claude Code sessions"

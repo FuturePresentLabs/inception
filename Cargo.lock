@@ -1197,6 +1197,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "mockall",
+ "once_cell",
  "opentelemetry",
  "opentelemetry-jaeger",
  "rand",

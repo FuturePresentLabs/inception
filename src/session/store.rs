@@ -247,6 +247,7 @@ impl SessionRow {
             current_task: None,
             agent_state: Some(crate::models::AgentState::Idle),
             progress: None,
+            webhook_url: None,
         }
     }
 }
