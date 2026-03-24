@@ -22,16 +22,22 @@ impl WebhookClient {
     /// Send a message notification to the webhook (OpenClaw /hooks/agent format)
     pub async fn send_message(&self, session_id: &SessionId, routing_key: Option<&str>, message: &Message) {
         if !self.enabled {
+            tracing::debug!("Webhook disabled, skipping message for session {}", session_id.0);
             return;
         }
 
         let Some(url) = &self.webhook_url else {
+            tracing::warn!("Webhook URL not configured, skipping message for session {}", session_id.0);
             return;
         };
+
+        tracing::info!("Sending webhook for session {} to URL: {}", session_id.0, url);
 
         // Use routing_key if available, otherwise default to inception:session_id
         let session_key = routing_key.map(|s| s.to_string())
             .unwrap_or_else(|| format!("inception:{}", session_id.0));
+
+        tracing::debug!("Using session_key: {} for session {}", session_key, session_id.0);
 
         // OpenClaw /hooks/agent format
         let payload = serde_json::json!({
@@ -50,27 +56,35 @@ impl WebhookClient {
             }
         });
 
+        tracing::debug!("Webhook payload: {}", payload.to_string());
+
         let mut request = self.client.post(url).json(&payload);
         
         // Add bearer token if configured
         if let Some(token) = &self.webhook_token {
+            tracing::debug!("Adding Authorization header with token");
             request = request.header("Authorization", format!("Bearer {}", token));
         }
 
+        tracing::info!("Sending POST request to webhook...");
+
         match request.send().await {
             Ok(response) => {
-                if response.status().is_success() {
-                    tracing::info!("Webhook sent for session {}", session_id.0);
+                let status = response.status();
+                if status.is_success() {
+                    tracing::info!("Webhook SUCCESS for session {}: HTTP {}", session_id.0, status);
                 } else {
+                    let body = response.text().await.unwrap_or_default();
                     tracing::warn!(
-                        "Webhook returned error status: {} for session {}",
-                        response.status(),
-                        session_id.0
+                        "Webhook FAILED for session {}: HTTP {} - Body: {}",
+                        session_id.0,
+                        status,
+                        body
                     );
                 }
             }
             Err(e) => {
-                tracing::error!("Failed to send webhook: {}", e);
+                tracing::error!("Webhook ERROR for session {}: {}", session_id.0, e);
             }
         }
     }
