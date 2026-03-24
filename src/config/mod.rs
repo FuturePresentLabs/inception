@@ -136,6 +136,8 @@ pub struct WebhookConfig {
     pub url: Option<String>,
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default)]
+    pub token: Option<String>,
 }
 
 impl Default for WebhookConfig {
@@ -143,6 +145,7 @@ impl Default for WebhookConfig {
         Self {
             url: None,
             enabled: false,
+            token: None,
         }
     }
 }
@@ -218,6 +221,9 @@ impl Config {
         if let Ok(url) = std::env::var("INCEPTION_WEBHOOK_URL") {
             config.webhook.url = Some(url);
             config.webhook.enabled = true;
+        }
+        if let Ok(token) = std::env::var("INCEPTION_WEBHOOK_TOKEN") {
+            config.webhook.token = Some(token);
         }
 
         Ok(config)

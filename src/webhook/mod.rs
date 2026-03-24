@@ -5,6 +5,7 @@ use crate::models::{Message, SessionId};
 pub struct WebhookClient {
     client: reqwest::Client,
     webhook_url: Option<String>,
+    webhook_token: Option<String>,
     enabled: bool,
 }
 
@@ -13,6 +14,7 @@ impl WebhookClient {
         Self {
             client: reqwest::Client::new(),
             webhook_url: config.webhook.url.clone(),
+            webhook_token: config.webhook.token.clone(),
             enabled: config.webhook.enabled,
         }
     }
@@ -37,7 +39,14 @@ impl WebhookClient {
             },
         });
 
-        match self.client.post(url).json(&payload).send().await {
+        let mut request = self.client.post(url).json(&payload);
+        
+        // Add bearer token if configured
+        if let Some(token) = &self.webhook_token {
+            request = request.header("Authorization", format!("Bearer {}", token));
+        }
+
+        match request.send().await {
             Ok(response) => {
                 if response.status().is_success() {
                     tracing::info!("Webhook sent for session {}", session_id.0);
@@ -81,7 +90,14 @@ impl WebhookClient {
             },
         });
 
-        match self.client.post(url).json(&payload).send().await {
+        let mut request = self.client.post(url).json(&payload);
+        
+        // Add bearer token if configured
+        if let Some(token) = &self.webhook_token {
+            request = request.header("Authorization", format!("Bearer {}", token));
+        }
+
+        match request.send().await {
             Ok(response) => {
                 if response.status().is_success() {
                     tracing::info!(
