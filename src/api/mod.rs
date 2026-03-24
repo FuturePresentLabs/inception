@@ -349,12 +349,12 @@ async fn handle_agent_socket(
                             state.message_store.add_message(&session_id, message.clone()).await;
                             // Get session for routing_key
                             let routing_key = if let Ok(Some(session)) = state.store.get(&session_id).await {
-                                session.routing_key.as_deref()
+                                session.routing_key.clone()
                             } else {
                                 None
                             };
                             // Trigger webhook if configured
-                            state.webhook.send_message(&session_id, routing_key, &message).await;
+                            state.webhook.send_message(&session_id, routing_key.as_deref(), &message).await;
                         }
                     }
                     Ok(WsMessage::Close(_)) | Err(_) => {
