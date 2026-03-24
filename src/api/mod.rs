@@ -358,6 +358,7 @@ async fn handle_agent_socket(
                             crate::models::Message {
                                 id: format!("msg-{}", chrono::Utc::now().timestamp_millis()),
                                 content: text,
+                                context: None,
                                 in_reply_to: None,
                                 source: Some("claude_code".to_string()),
                                 timestamp: chrono::Utc::now(),

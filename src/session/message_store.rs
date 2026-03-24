@@ -5,11 +5,11 @@ use sqlx::{Pool, Sqlite, SqlitePool};
 /// Message storage trait
 #[async_trait]
 pub trait MessageStore: Send + Sync {
-    /// Store a message
-    async fn store(&self, session_id: &SessionId, message: &Message) -> anyhow::Result<()>;
+    /// Store a message (alias for store)
+    async fn add_message(&self, session_id: &SessionId, message: Message) -> anyhow::Result<()>;
     
     /// Get messages for a session (ordered by timestamp)
-    async fn get_for_session(&self, session_id: &SessionId, limit: i64) -> anyhow::Result<Vec<Message>>;
+    async fn get_messages(&self, session_id: &SessionId) -> anyhow::Result<Vec<Message>>;
 }
 
 /// SQLite message store
@@ -46,7 +46,7 @@ impl SqliteMessageStore {
 
 #[async_trait]
 impl MessageStore for SqliteMessageStore {
-    async fn store(&self, session_id: &SessionId, message: &Message) -> anyhow::Result<()> {
+    async fn add_message(&self, session_id: &SessionId, message: Message) -> anyhow::Result<()> {
         sqlx::query(
             r#"
             INSERT INTO messages (id, session_id, content, timestamp, source, in_reply_to)
@@ -68,18 +68,17 @@ impl MessageStore for SqliteMessageStore {
         Ok(())
     }
     
-    async fn get_for_session(&self, session_id: &SessionId, limit: i64) -> anyhow::Result<Vec<Message>> {
+    async fn get_messages(&self, session_id: &SessionId) -> anyhow::Result<Vec<Message>> {
         let rows = sqlx::query_as::<_, MessageRow>(
             r#"
             SELECT id, content, timestamp, source, in_reply_to
             FROM messages
             WHERE session_id = ?1
             ORDER BY timestamp ASC
-            LIMIT ?2
+            LIMIT 100
             "#
         )
         .bind(&session_id.0)
-        .bind(limit)
         .fetch_all(&self.pool)
         .await?;
         
