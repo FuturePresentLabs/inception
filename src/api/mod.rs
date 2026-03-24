@@ -347,25 +347,39 @@ async fn handle_agent_socket(
                     Ok(WsMessage::Text(text)) => {
                         // Process incoming message from agent
                         tracing::info!("Received message from agent for session {}, text length: {}", session_id.0, text.len());
-                        // Store the message
-                        if let Ok(message) = serde_json::from_str::<crate::models::Message>(&text) {
-                            tracing::info!("Parsed message from agent: id={}, content_preview={}", message.id, &message.content[..message.content.len().min(50)]);
-                            state.message_store.add_message(&session_id, message.clone()).await;
-                            // Get session for routing_key
-                            let routing_key = if let Ok(Some(session)) = state.store.get(&session_id).await {
-                                tracing::info!("Found session {}, routing_key: {:?}", session_id.0, session.routing_key);
-                                session.routing_key.clone()
-                            } else {
-                                tracing::warn!("Could not find session {} for routing_key", session_id.0);
-                                None
-                            };
-                            // Trigger webhook if configured
-                            tracing::info!("Triggering webhook for session {}...", session_id.0);
-                            state.webhook.send_message(&session_id, routing_key.as_deref(), &message).await;
-                            tracing::info!("Webhook call completed for session {}", session_id.0);
+                        
+                        // Try to parse as JSON Message first
+                        let message = if let Ok(msg) = serde_json::from_str::<crate::models::Message>(&text) {
+                            tracing::info!("Parsed JSON message from agent: id={}", msg.id);
+                            msg
                         } else {
-                            tracing::warn!("Failed to parse message from agent for session {}", session_id.0);
-                        }
+                            // Treat as plain text - wrap in Message
+                            tracing::info!("Received plain text from agent, wrapping in Message");
+                            crate::models::Message {
+                                id: format!("msg-{}", chrono::Utc::now().timestamp_millis()),
+                                content: text,
+                                in_reply_to: None,
+                                source: Some("claude_code".to_string()),
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                            }
+                        };
+                        
+                        // Store the message
+                        state.message_store.add_message(&session_id, message.clone()).await;
+                        
+                        // Get session for routing_key
+                        let routing_key = if let Ok(Some(session)) = state.store.get(&session_id).await {
+                            tracing::info!("Found session {}, routing_key: {:?}", session_id.0, session.routing_key);
+                            session.routing_key.clone()
+                        } else {
+                            tracing::warn!("Could not find session {} for routing_key", session_id.0);
+                            None
+                        };
+                        
+                        // Trigger webhook if configured
+                        tracing::info!("Triggering webhook for session {}...", session_id.0);
+                        state.webhook.send_message(&session_id, routing_key.as_deref(), &message).await;
+                        tracing::info!("Webhook call completed for session {}", session_id.0);
                     }
                     Ok(WsMessage::Close(_)) | Err(_) => {
                         break;
