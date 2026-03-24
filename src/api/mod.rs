@@ -360,7 +360,7 @@ async fn handle_agent_socket(
                                 content: text,
                                 in_reply_to: None,
                                 source: Some("claude_code".to_string()),
-                                timestamp: chrono::Utc::now().to_rfc3339(),
+                                timestamp: chrono::Utc::now(),
                             }
                         };
                         

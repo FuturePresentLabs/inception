@@ -242,6 +242,10 @@ pub struct Message {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<HashMap<String, serde_json::Value>>,
     pub timestamp: DateTime<Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub in_reply_to: Option<String>,
 }
 
 impl Message {
@@ -251,6 +255,8 @@ impl Message {
             content: content.into(),
             context: None,
             timestamp: Utc::now(),
+            source: None,
+            in_reply_to: None,
         }
     }
 

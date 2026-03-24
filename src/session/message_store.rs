@@ -59,7 +59,7 @@ impl MessageStore for SqliteMessageStore {
         .bind(&message.id)
         .bind(&session_id.0)
         .bind(&message.content)
-        .bind(&message.timestamp)
+        .bind(message.timestamp.to_rfc3339())
         .bind(message.source.as_ref().unwrap_or(&"unknown".to_string()))
         .bind(message.in_reply_to.as_ref())
         .execute(&self.pool)
@@ -98,10 +98,14 @@ struct MessageRow {
 
 impl MessageRow {
     fn to_message(self) -> Message {
+        use chrono::DateTime;
         Message {
             id: self.id,
             content: self.content,
-            timestamp: self.timestamp,
+            timestamp: DateTime::parse_from_rfc3339(&self.timestamp)
+                .unwrap_or_else(|_| chrono::Utc::now().into())
+                .into(),
+            context: None,
             source: Some(self.source),
             in_reply_to: self.in_reply_to,
         }
